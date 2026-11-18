@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1f7a55">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Porters">
+  <title>Porters Agenda</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <!-- Login -->
+  <section id="login" class="login" hidden>
+    <div class="logo"><svg class="i"><use href="#i-trolley"/></svg></div>
+    <h1>Porters Agenda</h1>
+    <p>Who are you?</p>
+    <div class="names" id="loginNames"></div>
+    <form id="loginForm">
+      <label class="f" id="pinWrap">Team PIN
+        <input class="in" id="pin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="••••">
+      </label>
+      <div class="err" id="loginErr"></div>
+      <button class="btn primary block" id="loginBtn" type="submit" disabled>Continue</button>
+    </form>
+  </section>
+
+  <!-- App -->
+  <div id="app" hidden>
+    <header class="top">
+      <div class="wrap">
+        <div class="bar">
+          <div class="title">
+            <h1 id="dayTitle">Agenda</h1>
+            <div class="sub"><span class="dot" id="syncDot"></span><span id="syncText">Loading…</span></div>
+          </div>
+          <button class="icon-btn" id="shotBtn" aria-label="View original screenshot"><svg class="i"><use href="#i-image"/></svg></button>
+          <button class="icon-btn" id="menuBtn" aria-label="Menu"><svg class="i"><use href="#i-menu"/></svg></button>
+        </div>
+        <nav class="chips" id="chips" aria-label="Filter by porter"></nav>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <div id="banner"></div>
+      <div class="days" id="days" hidden></div>
+      <div class="summary" id="summary" hidden>
+        <div class="progress"><i id="progBar"></i></div>
+        <span class="txt" id="progTxt"></span>
+        <button class="toggle" id="hideDoneBtn"></button>
+      </div>
+      <div class="list" id="list"></div>
+    </main>
+
+    <button class="fab" id="fab"><svg class="i"><use href="#i-upload"/></svg>Upload</button>
+  </div>
+
+  <!-- Sheets -->
+  <dialog class="sheet" id="sheet">
+    <div class="grab"></div>
+    <div class="sheet-head">
+      <h2 id="sheetTitle"></h2>
+      <button class="icon-btn" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="sheet-body" id="sheetBody"></div>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></symbol>
+    <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3 19c.6-3.2 3-5 6-5s5.4 1.8 6 5"/><circle cx="17" cy="9" r="2.5"/><path d="M16.5 14c2.5 0 4 1.5 4.5 4"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c1-4 4-6 8-6s7 2 8 6"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 10-2.3 5.7M20 5v6h-6"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4"/></symbol>
+    <symbol id="i-trolley" viewBox="0 0 24 24"><path d="M5 3v14h14M9 13V7h9v6H9z"/><circle cx="7" cy="20" r="1.5"/><circle cx="17" cy="20" r="1.5"/></symbol>
+  </svg>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>

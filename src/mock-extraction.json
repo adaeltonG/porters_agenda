@@ -1,0 +1,137 @@
+{
+  "rows": [
+    {
+      "date": "2026-11-18", "owner": "Hospitality", "requestor": "Onur", "eventLead": "N", "host": "Niamh Keenan", "vendor": "Pique",
+      "teaCoffee": { "needed": false, "time": "", "note": "" },
+      "breakfast": { "needed": false, "time": "", "note": "" },
+      "lunch": { "needed": true, "time": "12:30", "note": "" },
+      "afternoon": { "needed": false, "time": "", "note": "" },
+      "clearUp": { "needed": true, "time": "13:30", "note": "" },
+      "setup": { "needed": false, "time": "", "note": "" },
+      "reset": { "needed": false, "time": "", "note": "" },
+      "location": "31-C09", "attendees": "9", "info": "Niamh K... file. Allergen matrix", "porters": "Jeet",
+      "hasMenuLink": true, "hasAgendaLink": false, "hasFloorPlanLink": false
+    },
+    {
+      "date": "2026-11-18", "owner": "Movers", "requestor": "", "eventLead": "", "host": "", "vendor": "",
+      "teaCoffee": { "needed": false, "time": "", "note": "" },
+      "breakfast": { "needed": false, "time": "", "note": "" },
+      "lunch": { "needed": false, "time": "", "note": "" },
+      "afternoon": { "needed": false, "time": "", "note": "" },
+      "clearUp": { "needed": false, "time": "", "note": "" },
+      "setup": { "needed": false, "time": "", "note": "" },
+      "reset": { "needed": false, "time": "", "note": "" },
+      "location": "SIC reset", "attendees": "", "info": "", "porters": "Tom, Pablo, Robinson, Jeet",
+      "hasMenuLink": false, "hasAgendaLink": false, "hasFloorPlanLink": false
+    },
+    {
+      "date": "2026-11-18", "owner": "Hospitality", "requestor": "Onur", "eventLead": "N", "host": "Mike Hartley", "vendor": "Pure",
+      "teaCoffee": { "needed": false, "time": "", "note": "" },
+      "breakfast": { "needed": false, "time": "", "note": "" },
+      "lunch": { "needed": true, "time": "11:50", "note": "" },
+      "afternoon": { "needed": false, "time": "", "note": "" },
+      "clearUp": { "needed": true, "time": "12:50", "note": "" },
+      "setup": { "needed": false, "time": "", "note": "" },
+      "reset": { "needed": false, "time": "", "note": "" },
+      "location": "27-C01", "attendees": "20", "info": "Mike Har... file. Allergen matrix", "porters": "Tom",
+      "hasMenuLink": true, "hasAgendaLink": false, "hasFloorPlanLink": false
+    },
+    {
+      "date": "2026-11-18", "owner": "Hospitality", "requestor": "Viki", "eventLead": "N", "host": "Ellie Sibley", "vendor": "Humdingers",
+      "teaCoffee": { "needed": false, "time": "", "note": "" },
+      "breakfast": { "needed": false, "time": "", "note": "" },
+      "lunch": { "needed": true, "time": "12:30", "note": "" },
+      "afternoon": { "needed": false, "time": "", "note": "" },
+      "clearUp": { "needed": true, "time": "14:30", "note": "" },
+      "setup": { "needed": false, "time": "", "note": "" },
+      "reset": { "needed": false, "time": "", "note": "" },
+      "location": "33-C14", "attendees": "10", "info": "AM - Ellie... Menu", "porters": "Robinson",
+      "hasMenuLink": true, "hasAgendaLink": false, "hasFloorPlanLink": false
+    },
+    {
+      "date": "2026-11-18", "owner": "Hospitality", "requestor": "Viki", "eventLead": "N", "host": "Bruna Schwerz", "vendor": "Jackie Filmer",
+      "teaCoffee": { "needed": true, "time": "08:00", "note": "Refill at lunch. Clear with lunch" },
+      "breakfast": { "needed": false, "time": "", "note": "" },
+      "lunch": { "needed": true, "time": "12:00", "note": "" },
+      "afternoon": { "needed": false, "time": "", "note": "" },
+      "clearUp": { "needed": true, "time": "13:00", "note": "" },
+      "setup": { "needed": false, "time": "", "note": "" },
+      "reset": { "needed": false, "time": "", "note": "" },
+      "location": "28-C19", "attendees": "20", "info": "This one is for 20 people, including vegan option, please check allergen matrix accordingly. AM 28-C... Menu", "porters": "TCW : Wilson L:Pablo",
+      "hasMenuLink": true, "hasAgendaLink": false, "hasFloorPlanLink": false
+    },
+    {
+      "date": "2026-11-18", "owner": "Hospitality", "requestor": "Viki", "eventLead": "N", "host": "Bruna Schwerz", "vendor": "Jackie Filmer",
+      "teaCoffee": { "needed": true, "time": "08:00", "note": "Refill at lunch. Clear with lunch" },
+      "breakfast": { "needed": false, "time": "", "note": "" },
+      "lunch": { "needed": true, "time": "12:00", "note": "" },
+      "afternoon": { "needed": false, "time": "", "note": "" },
+      "clearUp": { "needed": true, "time": "13:00", "note": "" },
+      "setup": { "needed": false, "time": "", "note": "" },
+      "reset": { "needed": false, "time": "", "note": "" },
+      "location": "30-C21", "attendees": "10", "info": "This lunch is for 10 guests, attach allergen matrix accordingly please. AM 30-C... Menu", "porters": "Wilson",
+      "hasMenuLink": true, "hasAgendaLink": false, "hasFloorPlanLink": false
+    },
+    {
+      "date": "2026-11-18", "owner": "Hospitality", "requestor": "Viki", "eventLead": "N", "host": "Amy Sidebotham", "vendor": "Pure",
+      "teaCoffee": { "needed": false, "time": "", "note": "" },
+      "breakfast": { "needed": true, "time": "09:30", "note": "" },
+      "lunch": { "needed": true, "time": "12:15", "note": "" },
+      "afternoon": { "needed": false, "time": "", "note": "" },
+      "clearUp": { "needed": true, "time": "13:15", "note": "" },
+      "setup": { "needed": false, "time": "", "note": "" },
+      "reset": { "needed": false, "time": "", "note": "" },
+      "location": "32-C07", "attendees": "8", "info": "AM B - A... AM L - A... Menu", "porters": "Tom",
+      "hasMenuLink": true, "hasAgendaLink": false, "hasFloorPlanLink": false
+    },
+    {
+      "date": "2026-11-18", "owner": "Movers", "requestor": "Viki", "eventLead": "N", "host": "Jennifer Shane", "vendor": "",
+      "teaCoffee": { "needed": false, "time": "", "note": "" },
+      "breakfast": { "needed": false, "time": "", "note": "" },
+      "lunch": { "needed": false, "time": "", "note": "" },
+      "afternoon": { "needed": false, "time": "", "note": "" },
+      "clearUp": { "needed": false, "time": "", "note": "" },
+      "setup": { "needed": true, "time": "11:00", "note": "" },
+      "reset": { "needed": true, "time": "14:30", "note": "2:30 - 3pm. Put back plexi glass and chairs, please. Thank you" },
+      "location": "Ohana floor - Chef's table", "attendees": "16", "info": "Remove plexi glass at 11am. 16 chairs around the table", "porters": "Tom, Robinson",
+      "hasMenuLink": false, "hasAgendaLink": false, "hasFloorPlanLink": false
+    },
+    {
+      "date": "2026-11-18", "owner": "Movers", "requestor": "Andrew Bilbie", "eventLead": "", "host": "Jacqueline Gould", "vendor": "N",
+      "teaCoffee": { "needed": false, "time": "", "note": "" },
+      "breakfast": { "needed": false, "time": "", "note": "" },
+      "lunch": { "needed": false, "time": "", "note": "" },
+      "afternoon": { "needed": false, "time": "", "note": "" },
+      "clearUp": { "needed": false, "time": "", "note": "" },
+      "setup": { "needed": true, "time": "07:00", "note": "07:00 - 07:30" },
+      "reset": { "needed": true, "time": "11:15", "note": "" },
+      "location": "32-C18", "attendees": "40", "info": "Theatre style for 50 pax + 4 high chairs", "porters": "",
+      "hasMenuLink": false, "hasAgendaLink": true, "hasFloorPlanLink": true
+    },
+    {
+      "date": "2026-11-18", "owner": "Hospitality", "requestor": "Roberto Rosales", "eventLead": "N", "host": "Roberto Rosales", "vendor": "N",
+      "teaCoffee": { "needed": true, "time": "", "note": "" },
+      "breakfast": { "needed": true, "time": "09:30", "note": "" },
+      "lunch": { "needed": true, "time": "11:30", "note": "" },
+      "afternoon": { "needed": false, "time": "", "note": "" },
+      "clearUp": { "needed": true, "time": "13:00", "note": "" },
+      "setup": { "needed": true, "time": "09:30", "note": "" },
+      "reset": { "needed": true, "time": "11:15", "note": "" },
+      "location": "L26-C18", "attendees": "22", "info": "Menu and Matrix", "porters": "Tom / Wilson",
+      "hasMenuLink": true, "hasAgendaLink": false, "hasFloorPlanLink": false
+    },
+    {
+      "date": "2026-11-18", "owner": "Both", "requestor": "Olga Skvortsova", "eventLead": "", "host": "Michael Hall", "vendor": "Platter Up",
+      "teaCoffee": { "needed": true, "time": "", "note": "Barista team" },
+      "breakfast": { "needed": false, "time": "", "note": "" },
+      "lunch": { "needed": false, "time": "", "note": "" },
+      "afternoon": { "needed": true, "time": "14:30", "note": "" },
+      "clearUp": { "needed": true, "time": "16:00", "note": "" },
+      "setup": { "needed": true, "time": "08:00", "note": "08:00 - 09:00" },
+      "reset": { "needed": true, "time": "16:00", "note": "" },
+      "location": "Ohana floor, Culture Gallery", "attendees": "70", "info": "Menu & Allergen Matrix", "porters": "Tom, Pablo, Robinson, Jeet",
+      "hasMenuLink": true, "hasAgendaLink": true, "hasFloorPlanLink": true
+    }
+  ],
+  "warnings": ["Mock data: this is a hand-typed copy of the 18/11/2026 screenshot, not a live read."]
+}
