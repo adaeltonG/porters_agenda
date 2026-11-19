@@ -112,3 +112,7 @@ main h1 { font-size: 24px; margin: 0; letter-spacing: -.015em; }
 .login .back a { color: var(--accent); font-weight: 600; text-decoration: none; }
 dialog.sheet.wide { max-width: 760px; }
 .a-table .pk-in { min-width: 40px; }
+.row-acts { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.row-acts .btn.small { min-height: 32px; padding: 0 10px; font-size: 13px; border-radius: 8px; gap: 5px; }
+.row-acts .btn.small svg.i { width: 15px; height: 15px; }
+.a-table td.loc { min-width: 150px; }

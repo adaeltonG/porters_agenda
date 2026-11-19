@@ -300,7 +300,8 @@ function showDetail(id) {
     ${links.length ? `<div class="links">${links.map((l) => `<span>${esc(l)}: link in spreadsheet</span>`).join("")}</div>` : ""}
     <div class="btn-row">
       ${dayUpload()?.images?.length ? `<button class="btn" data-act="shots">${icon("image")} Screenshot</button>` : ""}
-      ${isAdmin() ? `<button class="btn" data-act="edit" data-job="${esc(id)}">${icon("edit")} Edit</button>` : ""}
+      ${isAdmin() ? `<button class="btn" data-act="edit" data-job="${esc(id)}">${icon("edit")} Edit</button>
+      <button class="btn danger" data-act="delete" data-job="${esc(id)}">${icon("trash")} Delete</button>` : ""}
     </div></div>`);
 }
 
@@ -388,7 +389,9 @@ async function loadHosts() {
 }
 
 async function deleteJob(id) {
-  if (!confirm("Delete this job from today's agenda?")) return;
+  const job = state.jobs.find((j) => j.id === id);
+  const what = [job?.location, (job?.hosts || []).join(", ")].filter(Boolean).join(" – ") || "this job";
+  if (!confirm(`Delete ${what}? Its ticks are deleted too. This can't be undone.`)) return;
   try {
     await api(`api/jobs/${encodeURIComponent(id)}`, { method: "DELETE" });
     closeSheet();

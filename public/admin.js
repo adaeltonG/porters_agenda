@@ -140,7 +140,7 @@ function renderAgenda() {
   pickers.clear();
   const tbody = $("#rows");
   if (!jobs.length) {
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="8">No jobs on this day. ${date >= day.today ? "Upload the agenda or add a job." : ""}</td></tr>`;
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="7">No jobs on this day. ${date >= day.today ? "Upload the agenda or add a job." : ""}</td></tr>`;
     return;
   }
   const now = nowMin();
@@ -152,7 +152,11 @@ function renderAgenda() {
     const [s, e] = times(j);
     return `<tr class="${cls}" data-owner="${esc(j.owner)}" data-id="${esc(j.id)}">
       <td class="tm">${s == null ? "–" : s === e ? fmtMin(s) : `${fmtMin(s)}<br><span style="color:var(--muted);font-weight:600">– ${fmtMin(e)}</span>`}</td>
-      <td class="loc">${esc(j.location || "–")}<span class="own">${esc(j.owner === "Other" ? "" : j.owner)}${j.vendor ? ` · ${esc(j.vendor)}` : ""}</span></td>
+      <td class="loc">${esc(j.location || "–")}<span class="own">${esc(j.owner === "Other" ? "" : j.owner)}${j.vendor ? ` · ${esc(j.vendor)}` : ""}</span>
+        <div class="row-acts">
+          <button class="btn small" data-act="edit" data-job="${esc(j.id)}">${icon("edit")}Edit</button>
+          <button class="btn small danger" data-act="delete" data-job="${esc(j.id)}">${icon("trash")}Delete</button>
+        </div></td>
       <td>${esc((j.hosts || []).join(", ") || j.host || "–")}</td>
       <td>${esc(j.attendees || "")}</td>
       <td><div class="tasks-cell">${tasks.map((t) => {
@@ -164,7 +168,6 @@ function renderAgenda() {
       }).join("")}</div></td>
       <td class="porters-cell"><div class="pp" data-job="${esc(j.id)}"></div>${j.portersRaw ? `<div class="raw">Sheet: ${esc(j.portersRaw)}</div>` : ""}</td>
       <td class="nt"><div>${esc(j.info || "")}</div></td>
-      <td><button class="icon-btn" data-act="edit" data-job="${esc(j.id)}" aria-label="Edit job">${icon("edit")}</button></td>
     </tr>`;
   }).join("");
 
@@ -285,7 +288,9 @@ function showEdit(id) {
 }
 
 async function deleteJob(id) {
-  if (!confirm("Delete this job? Its ticks are deleted too.")) return;
+  const job = day?.jobs.find((j) => j.id === id);
+  const what = [job?.location, (job?.hosts || []).join(", ")].filter(Boolean).join(" – ") || "this job";
+  if (!confirm(`Delete ${what}? Its ticks are deleted too. This can't be undone.`)) return;
   try {
     await api(`api/jobs/${encodeURIComponent(id)}`, { method: "DELETE" });
     closeSheet();
