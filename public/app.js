@@ -1,5 +1,5 @@
 // Porters Agenda - client
-import { multiPicker } from "./picker.js";
+import { multiPicker } from "./picker.js?v=4";
 import { timeInputHTML, wireTimeInputs } from "./timeinput.js";
 
 const $ = (s, el = document) => el.querySelector(s);

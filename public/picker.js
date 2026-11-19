@@ -16,6 +16,7 @@ window.addEventListener("resize", () => openPicker?.place());
  * opts.allowNew: true to offer "Add “…”" for a name that isn't in the list
  * opts.closeOnPick: true to close the list after each pick
  * opts.onChange({ values, everyone })
+ * opts.onClose() after the list closes
  */
 export function multiPicker(root, opts) {
   let options = [...(opts.options || [])];
@@ -78,11 +79,16 @@ export function multiPicker(root, opts) {
     root.classList.add("open");
   }
   function close() {
+    const wasOpen = !list.hidden;
     list.hidden = true;
     list.remove();
     input.value = "";
     root.classList.remove("open");
     if (openPicker === api) openPicker = null;
+    // Leave the box, or the browser can hand focus back to it later (e.g. when a
+    // "Delete?" box closes) and that would quietly re-open the list.
+    if (document.activeElement === input) input.blur();
+    if (wasOpen) opts.onClose?.();
   }
 
   function toggle(v) {

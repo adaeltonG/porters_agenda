@@ -1,5 +1,5 @@
 // Porters Agenda - admin dashboard
-import { multiPicker } from "./picker.js";
+import { multiPicker } from "./picker.js?v=4";
 import { timeInputHTML, wireTimeInputs } from "./timeinput.js";
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -95,7 +95,9 @@ async function loadDay(force) {
     setSync(true);
     if (d.unchanged) return;
     day = d;
-    if ([...pickers.values()].some((p) => p.isOpen())) { deferred = true; return; }
+    // A background update waits while a porter dropdown is open, so it doesn't wipe a pick
+    // in progress. After the admin's own action (delete, edit, tick...) redraw straight away.
+    if (!force && pickerOpen()) { deferred = true; return; }
     renderAgenda();
   } catch (e) {
     if (e.message !== "Not logged in") setSync(false);
@@ -182,6 +184,7 @@ function renderAgenda() {
         clearTimeout(timer);
         timer = setTimeout(() => savePorters(job.id, v), 700);
       },
+      onClose: () => setTimeout(flushDeferred),
     });
     pickers.set(job.id, pk);
   }
@@ -195,10 +198,11 @@ async function savePorters(id, v) {
   } catch (e) { toast(e.message); }
 }
 
-// re-draw once the dropdown that blocked a live update is closed
-document.addEventListener("pointerup", () => setTimeout(() => {
-  if (deferred && ![...pickers.values()].some((p) => p.isOpen())) renderAgenda();
-}, 800));
+const pickerOpen = () => [...pickers.values()].some((p) => p.isOpen());
+// re-draw as soon as the dropdown that held back a live update is closed
+function flushDeferred() {
+  if (deferred && !pickerOpen()) renderAgenda();
+}
 
 async function tick(jobId, task) {
   const on = !day.ticks[jobId]?.[task];
@@ -499,7 +503,11 @@ $("#porterForm").addEventListener("submit", async (e) => {
 $("#logout").addEventListener("click", () => { store.del("adminPin"); adminPin = ""; showLogin(); });
 
 // live updates: ticks from the porters' phones show up within a few seconds
-setInterval(() => { if (adminPin && tab === "agenda" && document.visibilityState === "visible" && !sheet.open) loadDay(); }, 4000);
+setInterval(() => {
+  if (!adminPin || tab !== "agenda" || document.visibilityState !== "visible" || sheet.open) return;
+  flushDeferred();
+  loadDay();
+}, 4000);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && adminPin && tab === "agenda") loadDay(); });
 
 // ---------- login ----------
