@@ -24,6 +24,7 @@ const DATA_DIR = process.env.DATA_DIR || path.join(here, "data");
 const IMG_DIR = path.join(DATA_DIR, "images");
 const TEAM_PIN = (process.env.TEAM_PIN || "").trim();
 const ADMIN_PIN = (process.env.ADMIN_PIN || "").trim();
+const ADMIN_NAME = (process.env.ADMIN_NAME || "").trim().slice(0, 40) || "Admin"; // shown on ticks/uploads from the dashboard
 
 const SLOT_KEYS = ["setup", "teaCoffee", "breakfast", "lunch", "afternoon", "clearUp", "reset"];
 const SLOT_LABEL = { setup: "Setup", teaCoffee: "Tea/coffee", breakfast: "Breakfast", lunch: "Lunch", afternoon: "Afternoon catering", clearUp: "Clear up", reset: "Reset" };
@@ -260,7 +261,7 @@ const adminPinOk = (p) => Boolean(ADMIN_PIN) && sameSecret(p, ADMIN_PIN);
 function auth(req, res, next) {
   req.isAdmin = adminPinOk(req.get("x-admin-pin"));
   if (!req.isAdmin && !teamPinOk(req.get("x-team-pin"))) return res.status(401).json({ error: "Wrong PIN" });
-  req.porter = str(decodeURIComponent(req.get("x-porter-name") || "")).slice(0, 40) || (req.isAdmin ? "Admin" : "Someone");
+  req.porter = str(decodeURIComponent(req.get("x-porter-name") || "")).slice(0, 40) || (req.isAdmin ? ADMIN_NAME : "Someone");
   next();
 }
 /** Uploading and changing jobs is for the admin; porters only tick their own jobs. */
@@ -274,7 +275,7 @@ function adminOnly(req, res, next) {
   if (!ADMIN_PIN) return res.status(503).json({ error: "The admin dashboard is off. Set ADMIN_PIN on the server." });
   if (!adminPinOk(req.get("x-admin-pin"))) return res.status(401).json({ error: "Wrong admin PIN" });
   req.isAdmin = true;
-  req.porter = "Admin";
+  req.porter = ADMIN_NAME;
   next();
 }
 

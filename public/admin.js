@@ -50,7 +50,7 @@ const fmtMin = (m) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
 const unassigned = (job) => !job.everyone && !job.porters?.length;
 
 async function api(path, opts = {}) {
-  const headers = { "x-admin-pin": adminPin, "x-porter-name": "Admin", ...(opts.headers || {}) };
+  const headers = { "x-admin-pin": adminPin, ...(opts.headers || {}) };
   let body = opts.body;
   if (body && !(body instanceof FormData)) { headers["content-type"] = "application/json"; body = JSON.stringify(body); }
   const res = await fetch(path, { ...opts, headers, body });
