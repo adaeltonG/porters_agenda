@@ -1,5 +1,6 @@
 // Porters Agenda - client
 import { multiPicker } from "./picker.js";
+import { timeInputHTML, wireTimeInputs } from "./timeinput.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -328,7 +329,7 @@ function showEdit(id) {
       return `<div class="slot-row">
         <input type="checkbox" name="${s.key}.needed" ${sl.needed ? "checked" : ""} aria-label="${esc(s.label)} needed">
         <span class="lbl">${esc(s.label)}</span>
-        <input class="in" type="time" name="${s.key}.time" value="${esc(sl.time || "")}" aria-label="${esc(s.label)} time">
+        ${timeInputHTML(`${s.key}.time`, esc(sl.time || ""), `${esc(s.label)} time`)}
         <input class="in note" name="${s.key}.note" value="${esc(sl.note || "")}" placeholder="Note (optional)" aria-label="${esc(s.label)} note">
       </div>`;
     }).join("")}
@@ -339,8 +340,9 @@ function showEdit(id) {
     </div>
   </form>`);
   const form = $("#editForm");
+  wireTimeInputs(form);
   const hostPick = multiPicker($("#hostPick"), {
-    options: hostList, selected: job.hosts || (job.host ? [job.host] : []), allowNew: true,
+    options: hostList, selected: job.hosts || (job.host ? [job.host] : []), allowNew: true, closeOnPick: true,
     placeholder: "Choose or type a name", label: "Hosts",
   });
   const porterPick = multiPicker($("#porterPick"), {

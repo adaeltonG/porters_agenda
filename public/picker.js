@@ -14,6 +14,7 @@ window.addEventListener("resize", () => openPicker?.place());
  * opts.selected: names already picked
  * opts.everyone: true to offer "Everyone" (opts.everyoneOn = currently picked)
  * opts.allowNew: true to offer "Add “…”" for a name that isn't in the list
+ * opts.closeOnPick: true to close the list after each pick
  * opts.onChange({ values, everyone })
  */
 export function multiPicker(root, opts) {
@@ -130,9 +131,11 @@ export function multiPicker(root, opts) {
       const name = b.dataset.new;
       if (!options.some((o) => o.toLowerCase() === name.toLowerCase())) options = [...options, name].sort((a, b) => a.localeCompare(b));
       if (!has(name)) toggle(name); else { input.value = ""; drawList(); }
-      return;
+    } else {
+      toggle(b.dataset.v);
     }
-    toggle(b.dataset.v);
+    // e.g. hosts: one pick and the list closes (tap the box again to add another)
+    if (opts.closeOnPick) { close(); input.blur(); }
   });
 
   const api = {

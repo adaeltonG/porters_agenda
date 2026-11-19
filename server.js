@@ -246,7 +246,8 @@ app.disable("x-powered-by");
 app.use(express.json({ limit: "200kb" }));
 app.use(express.static(path.join(here, "public"), {
   maxAge: "5m",
-  setHeaders: (res, file) => { if (file.endsWith("sw.js")) res.set("Cache-Control", "no-cache"); },
+  // code and pages are re-checked on every load (cheap 304s), so an update shows up straight away
+  setHeaders: (res, file) => { if (/\.(js|css|html|webmanifest)$/.test(file)) res.set("Cache-Control", "no-cache"); },
 }));
 
 function sameSecret(given, secret) {
