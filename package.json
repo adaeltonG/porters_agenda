@@ -6,12 +6,12 @@
   "description": "Mobile-first daily agenda for the porters team. Reads the daily sheet screenshot (free OCR) or the sheet file.",
   "main": "server.js",
   "scripts": {
-    "start": "node --env-file-if-exists=.env server.js",
-    "dev": "node --env-file-if-exists=.env --watch server.js",
-    "mock": "node --watch server.js --mock"
+    "start": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env server.js",
+    "dev": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env --watch server.js",
+    "mock": "node --disable-warning=ExperimentalWarning --watch server.js --mock"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.10.0",
@@ -20,6 +20,7 @@
     "express": "^4.22.3",
     "multer": "^2.5.0",
     "sharp": "^0.35.5",
-    "tesseract.js": "^7.0.0"
+    "tesseract.js": "^7.0.0",
+    "web-push": "^4.0.0"
   }
 }

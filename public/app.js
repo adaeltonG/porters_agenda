@@ -1,4 +1,6 @@
 // Porters Agenda - client
+import { multiPicker } from "./picker.js";
+
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const icon = (id) => `<svg class="i"><use href="#i-${id}"/></svg>`;
@@ -23,7 +25,7 @@ const ROLE_SLOT = { TCW: "teaCoffee", TC: "teaCoffee", T: "teaCoffee", B: "break
 const ROLE_SHORT = { teaCoffee: "Tea/coffee", breakfast: "Breakfast", lunch: "Lunch", afternoon: "Afternoon", setup: "Setup", clearUp: "Clear up", reset: "Reset" };
 const COLORS = ["#2f7fd1", "#d0573a", "#2f9e6e", "#9b59b6", "#c98a12", "#16a0a8", "#c2417e", "#5b6ad0"];
 
-let cfg = { porters: [], pinRequired: true };
+let cfg = { porters: [], pinRequired: true, pushKey: "" };
 let me = store.get("me", null);
 let pin = store.get("pin", "");
 let filter = store.get("filter", null);
@@ -62,6 +64,8 @@ const ago = (iso) => {
 // ---------- api ----------
 async function api(path, opts = {}) {
   const headers = { "x-team-pin": pin, "x-porter-name": encodeURIComponent(me || ""), ...(opts.headers || {}) };
+  const adminPin = store.get("adminPin", "");
+  if (adminPin) headers["x-admin-pin"] = adminPin;
   let body = opts.body;
   if (body && !(body instanceof FormData)) { headers["content-type"] = "application/json"; body = JSON.stringify(body); }
   const res = await fetch(path, { ...opts, headers, body });
@@ -83,18 +87,23 @@ function jobTimes(job) {
 }
 const fmtMin = (m) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
 const isTicked = (job, key) => Boolean(state.ticks?.[job.id]?.[key]);
+const isAdmin = () => Boolean(state?.admin);
+/** Porters tick their own jobs (or "Everyone" jobs); other people's are read-only. */
+const canTick = (job) => isAdmin() || job.everyone || Boolean(job.porters?.some((p) => p.name === me));
 const jobDone = (job) => tasksOf(job).every((t) => isTicked(job, t.key));
 
+const unassigned = (job) => !job.everyone && !job.porters?.length;
 function matchesFilter(job, f = filter) {
   if (!f) return true;
-  if (f === "__none") return !job.porters?.length;
-  return job.porters?.some((p) => p.name === f);
+  if (f === "__none") return unassigned(job);
+  return job.everyone || job.porters?.some((p) => p.name === f);
 }
 function mySlots(job, name) {
   const p = job.porters?.find((x) => x.name === name);
   if (!p || !p.roles?.length) return null; // null = all tasks
   return new Set(p.roles.map((r) => ROLE_SLOT[r]).filter(Boolean));
 }
+const dayUpload = () => state?.uploads?.[selectedDay] || null;
 function daysOf() {
   return [...new Set((state?.jobs || []).map((j) => j.date || ""))].sort();
 }
@@ -110,8 +119,8 @@ function render() {
   const isToday = selectedDay === today;
   $("#dayTitle").textContent = selectedDay ? (isToday ? "Today · " : "") + fmtDay(selectedDay) : "Porters Agenda";
   document.title = selectedDay ? `${fmtDay(selectedDay)} · Porters` : "Porters Agenda";
-  $("#shotBtn").hidden = !state.images?.length;
-  $("#fab").hidden = days.includes(today);
+  $("#shotBtn").hidden = !dayUpload()?.images?.length;
+  $("#fab").hidden = !isAdmin() || days.includes(today);
 
   // day tabs (only when the upload had more than one day)
   const daysEl = $("#days");
@@ -135,8 +144,11 @@ function render() {
   // stale / warnings banner
   let banner = "";
   if (state.jobs.length && selectedDay && selectedDay < today && !days.some((d) => d >= today)) {
-    banner = `<div class="banner"><div><b>This is the agenda for ${esc(fmtDay(selectedDay, true))}</b>Upload today's screenshot when it's posted.</div><button class="act" data-act="upload">Upload</button></div>`;
+    banner = isAdmin()
+      ? `<div class="banner"><div><b>This is the agenda for ${esc(fmtDay(selectedDay, true))}</b>Upload today's screenshot when it's posted.</div><button class="act" data-act="upload">Upload</button></div>`
+      : `<div class="banner"><div><b>This is the agenda for ${esc(fmtDay(selectedDay, true))}</b>Today's agenda hasn't been put up yet.</div></div>`;
   }
+  if (!banner) banner = pushPromptHTML();
   $("#banner").innerHTML = banner;
 
   const jobs = dayJobs.filter((j) => matchesFilter(j));
@@ -144,8 +156,10 @@ function render() {
 
   if (!state.jobs.length) {
     $("#summary").hidden = true;
-    list.innerHTML = `<div class="empty">${icon("image")}<h2>No agenda yet</h2><div>Upload the screenshot from the group chat and the jobs will appear here.</div>
-      <button class="btn primary big" data-act="upload">${icon("upload")} Upload screenshot</button></div>`;
+    list.innerHTML = isAdmin()
+      ? `<div class="empty">${icon("image")}<h2>No agenda yet</h2><div>Upload the screenshot from the group chat and the jobs will appear here.</div>
+      <button class="btn primary big" data-act="upload">${icon("upload")} Upload screenshot</button></div>`
+      : `<div class="empty">${icon("image")}<h2>No agenda yet</h2><div>The jobs will appear here as soon as the admin puts up the agenda.</div></div>`;
     return;
   }
 
@@ -188,6 +202,9 @@ function render() {
 }
 
 function porterChips(job, highlight) {
+  if (job.everyone) {
+    return `<span class="p all${highlight ? " me" : ""}"><span class="av">${icon("people")}</span>Everyone</span>`;
+  }
   if (!job.porters?.length) {
     return job.portersRaw
       ? `<span class="p none">${esc(job.portersRaw)}</span>`
@@ -210,11 +227,12 @@ function taskHTML(job, t, focus) {
   }
   const mine = focus && focus.has(t.key);
   if (!badge && mine) badge = `<span class="badge mine">Yours</span>`;
-  return `<li><button class="task${tick ? " ticked" : ""}${focus && !mine ? " dim" : ""}" data-act="tick" data-job="${esc(job.id)}" data-task="${t.key}" aria-pressed="${Boolean(tick)}">
-    <span class="box">${icon("check")}</span>
+  const inner = `<span class="box">${icon("check")}</span>
     <span class="tl">${t.time ? `<span class="tm">${esc(t.time)}</span>` : ""}<span class="name">${esc(t.label)}</span>${t.note ? `<small>${esc(t.note)}</small>` : ""}</span>
-    ${tick ? `<span class="tby">${esc(tick.by)}<br>${fmtClock(tick.at)}</span>` : badge}
-  </button></li>`;
+    ${tick ? `<span class="tby">${esc(tick.by)}<br>${fmtClock(tick.at)}</span>` : badge}`;
+  const cls = `task${tick ? " ticked" : ""}${focus && !mine ? " dim" : ""}`;
+  if (!canTick(job)) return `<li><div class="${cls} readonly" role="checkbox" aria-checked="${Boolean(tick)}" aria-disabled="true">${inner}</div></li>`;
+  return `<li><button class="${cls}" data-act="tick" data-job="${esc(job.id)}" data-task="${t.key}" aria-pressed="${Boolean(tick)}">${inner}</button></li>`;
 }
 
 function cardHTML(job, { start, end, done }) {
@@ -275,12 +293,13 @@ function showDetail(id) {
     <div class="detail-where">${esc(job.location || job.host)}</div>
     <div class="porters" style="padding:6px 0 4px">${porterChips(job, highlight)}</div>
     <ul class="tasks">${tasksOf(job).map((t) => taskHTML(job, t, highlight ? mySlots(job, highlight) : null)).join("")}</ul>
+    ${canTick(job) ? "" : `<div class="hint">Only the porters on this job can tick it.</div>`}
     ${job.info ? `<div class="notes">${esc(job.info)}</div>` : ""}
     <dl>${rows.map(([k, v]) => `<div class="kv"><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>
     ${links.length ? `<div class="links">${links.map((l) => `<span>${esc(l)}: link in spreadsheet</span>`).join("")}</div>` : ""}
     <div class="btn-row">
-      ${state.images?.length ? `<button class="btn" data-act="shots">${icon("image")} Screenshot</button>` : ""}
-      <button class="btn" data-act="edit" data-job="${esc(id)}">${icon("edit")} Edit</button>
+      ${dayUpload()?.images?.length ? `<button class="btn" data-act="shots">${icon("image")} Screenshot</button>` : ""}
+      ${isAdmin() ? `<button class="btn" data-act="edit" data-job="${esc(id)}">${icon("edit")} Edit</button>` : ""}
     </div></div>`);
 }
 
@@ -295,13 +314,13 @@ function showEdit(id) {
     <div class="grid2">
       <label class="f">Location<input class="in" name="location" value="${v("location")}" required></label>
       <label class="f">Guests<input class="in" name="attendees" inputmode="numeric" value="${v("attendees")}"></label>
-      <label class="f">Host<input class="in" name="host" value="${v("host")}"></label>
       <label class="f">Vendor<input class="in" name="vendor" value="${v("vendor")}"></label>
       <label class="f">Team<select class="in" name="owner">${["Hospitality", "Movers", "Both", "Other"].map((o) => `<option${job.owner === o ? " selected" : ""}>${o}</option>`).join("")}</select></label>
       <label class="f">Date<input class="in" type="date" name="date" value="${v("date")}"></label>
     </div>
-    <label class="f">Porters <span style="font-weight:500">(e.g. "Tom, Jeet" or "TCW: Wilson L: Pablo")</span>
-      <input class="in" name="portersRaw" value="${esc(job.portersRaw ?? "")}"></label>
+    <div class="f">Host(s)<div id="hostPick"></div></div>
+    <div class="f">Porters<div id="porterPick"></div></div>
+    ${job.portersRaw ? `<div class="hint">Sheet says: ${esc(job.portersRaw)}</div>` : ""}
     <label class="f">Notes<textarea class="in" name="info">${v("info")}</textarea></label>
     <label class="f" style="margin-bottom:4px">Tasks</label>
     ${SLOTS.map((s) => {
@@ -320,6 +339,15 @@ function showEdit(id) {
     </div>
   </form>`);
   const form = $("#editForm");
+  const hostPick = multiPicker($("#hostPick"), {
+    options: hostList, selected: job.hosts || (job.host ? [job.host] : []), allowNew: true,
+    placeholder: "Choose or type a name", label: "Hosts",
+  });
+  const porterPick = multiPicker($("#porterPick"), {
+    options: cfg.porters, selected: (job.porters || []).map((p) => p.name), everyone: true, everyoneOn: job.everyone,
+    placeholder: "Choose porters", label: "Porters",
+  });
+  loadHosts().then((h) => hostPick.setOptions(h));
   // ticking "needed" when a time is typed
   form.addEventListener("input", (e) => {
     const [k, f] = (e.target.name || "").split(".");
@@ -338,6 +366,10 @@ function showEdit(id) {
       const sl = (body.slots[s.key] ||= {});
       sl.needed = Boolean(form.elements[`${s.key}.needed`].checked);
     }
+    body.hosts = hostPick.value.values;
+    body.porters = porterPick.value.values;
+    body.everyone = porterPick.value.everyone;
+    body.portersRaw = job.portersRaw || "";
     try {
       const r = await api(id ? `api/jobs/${encodeURIComponent(id)}` : "api/jobs", { method: id ? "PUT" : "POST", body });
       toast("Saved");
@@ -345,6 +377,12 @@ function showEdit(id) {
       showDetail(r.job.id);
     } catch (err) { toast(err.message); }
   });
+}
+
+let hostList = [];
+async function loadHosts() {
+  try { hostList = (await api("api/hosts")).hosts; } catch { /* keep the last list */ }
+  return hostList;
 }
 
 async function deleteJob(id) {
@@ -358,10 +396,12 @@ async function deleteJob(id) {
 }
 
 async function showShots() {
+  const up = dayUpload();
+  if (!up?.images?.length) return;
   sheet.dataset.kind = "shots";
-  openSheet("Original screenshot", `<div style="color:var(--muted);font-size:14px;padding-top:12px">Tap to zoom. Uploaded by ${esc(state.uploadedBy || "someone")} ${state.uploadedAt ? ago(state.uploadedAt) : ""}.</div><div class="shots" id="shots">${state.images.map(() => `<div class="shot"><div class="spinner" style="margin:30px auto"></div></div>`).join("")}</div>`);
+  openSheet("Original screenshot", `<div style="color:var(--muted);font-size:14px;padding-top:12px">Tap to zoom. Uploaded by ${esc(up.by || "someone")} ${up.at ? ago(up.at) : ""}.</div><div class="shots" id="shots">${up.images.map(() => `<div class="shot"><div class="spinner" style="margin:30px auto"></div></div>`).join("")}</div>`);
   const holders = [...document.querySelectorAll("#shots .shot")];
-  state.images.forEach(async (name, i) => {
+  up.images.forEach(async (name, i) => {
     try {
       const res = await fetch(`api/images/${encodeURIComponent(name)}`, { headers: { "x-team-pin": pin } });
       if (!res.ok) throw new Error();
@@ -375,13 +415,15 @@ async function showShots() {
 function showMenu() {
   sheet.dataset.kind = "menu";
   openSheet("Menu", `<ul class="menu-list">
-    <li><button data-act="upload">${icon("upload")}<span>Upload agenda<small>Screenshot from the group chat, or the sheet file</small></span></button></li>
+    ${isAdmin() ? `<li><button data-act="upload">${icon("upload")}<span>Upload agenda<small>Screenshot from the group chat, or the sheet file</small></span></button></li>
     <li><button data-act="add">${icon("plus")}<span>Add a job by hand</span></button></li>
-    ${state?.images?.length ? `<li><button data-act="shots">${icon("image")}<span>View original screenshot</span></button></li>` : ""}
+    <li><a href="admin.html">${icon("table")}<span>Admin dashboard</span></a></li>` : ""}
+    ${dayUpload()?.images?.length ? `<li><button data-act="shots">${icon("image")}<span>View original screenshot</span></button></li>` : ""}
+    ${pushMenuItem()}
     <li><button data-act="refresh">${icon("refresh")}<span>Refresh</span></button></li>
     <li><button data-act="switch">${icon("user")}<span>Switch person<small>Signed in as ${esc(me)}</small></span></button></li>
   </ul>
-  ${state?.uploadedAt ? `<p style="color:var(--muted);font-size:13px;margin-top:16px">Agenda uploaded by ${esc(state.uploadedBy || "someone")} ${ago(state.uploadedAt)}.</p>` : ""}`);
+  ${dayUpload()?.at ? `<p style="color:var(--muted);font-size:13px;margin-top:16px">Agenda uploaded by ${esc(dayUpload().by || "someone")} ${ago(dayUpload().at)}.</p>` : ""}`);
 }
 
 // ---------- upload ----------
@@ -411,7 +453,7 @@ function showUpload() {
     <input id="upFiles" class="sr" type="file" accept="image/*,.xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" multiple>
     <div class="thumbs" id="thumbs"></div>
     ${hasJobs ? `
-    <label class="choice"><input type="radio" name="mode" value="replace" checked><span><b>Replace the agenda</b><small>Use for a new day or an updated sheet. Ticks are kept for jobs that haven't changed.</small></span></label>
+    <label class="choice"><input type="radio" name="mode" value="replace" checked><span><b>Replace the agenda</b><small>Use for a new day or an updated sheet. Ticks and assigned porters are kept for jobs that haven't changed.</small></span></label>
     <label class="choice"><input type="radio" name="mode" value="append"><span><b>Add more rows</b><small>Use when the rest of the agenda is in another screenshot.</small></span></label>` : `<input type="hidden" name="mode" value="replace">`}
     <button class="btn primary block" id="upGo" type="submit" style="margin-top:16px" disabled>Read screenshot</button>
   </form>`);
@@ -448,6 +490,8 @@ function showUpload() {
 
 // ---------- actions ----------
 async function toggleTick(jobId, task) {
+  const job = state.jobs.find((j) => j.id === jobId);
+  if (!job || !canTick(job)) return toast("You can only tick your own jobs");
   const t = (state.ticks[jobId] ||= {});
   const done = !t[task];
   if (done) t[task] = { by: me, at: new Date().toISOString() }; else delete t[task];
@@ -460,7 +504,7 @@ async function toggleTick(jobId, task) {
     state.ticks[jobId] = r.ticks;
     if (r.version === before + 1) state.version = r.version; else await refresh(true);
   } catch (e) {
-    toast("Couldn't save – check your signal");
+    toast(/own jobs/.test(e.message) ? e.message : "Couldn't save – check your signal");
     await refresh(true);
   } finally {
     pending--;
@@ -501,6 +545,9 @@ document.addEventListener("click", (e) => {
     case "shots": return showShots();
     case "refresh": closeSheet(); return refresh(true).then(() => toast("Up to date"));
     case "switch": closeSheet(); return showLogin();
+    case "push-on": return enablePush();
+    case "push-off": return disablePush();
+    case "push-later": store.set("pushLater", Date.now()); closeSheet(); return render();
   }
 });
 $("#menuBtn").addEventListener("click", showMenu);
@@ -521,13 +568,13 @@ function toast(msg) {
 function setSync(ok) {
   $("#syncDot").className = "dot " + (ok ? "ok" : "bad");
   $("#syncText").textContent = ok
-    ? (state?.uploadedAt ? `Live · updated ${ago(state.uploadedAt)}` : "Live")
+    ? (dayUpload()?.at ? `Live · updated ${ago(dayUpload().at)}` : "Live")
     : "Offline – showing last copy";
 }
 async function refresh(force) {
   try {
     const d = await api(`api/state?since=${force ? 0 : state?.version || 0}`);
-    if (!d.unchanged) { state = d; store.set("cache", d); rerenderAll(); }
+    if (!d.unchanged) { state = d; store.set("cache", d); rerenderAll(); alertNewJobs(); }
     setSync(true);
   } catch (e) {
     if (e.message !== "Not logged in") setSync(false);
@@ -536,6 +583,8 @@ async function refresh(force) {
 setInterval(() => { if (document.visibilityState === "visible" && !pending && me) refresh(); }, 10000);
 setInterval(() => { if (document.visibilityState === "visible" && me && state && !pending) { render(); setSync(!$("#syncDot").classList.contains("bad")); } }, 60000);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && me) refresh(); });
+// tapping a notification while the app is open
+navigator.serviceWorker?.addEventListener("message", (e) => { if (e.data?.type === "refresh" && me) refresh(true); });
 
 // ---------- login ----------
 let pickName = null;
@@ -569,6 +618,7 @@ $("#loginForm").addEventListener("submit", async (e) => {
   const switched = me !== pickName;
   me = pickName; pin = p;
   store.set("me", me); store.set("pin", pin);
+  if (switched) syncPush();
   if (switched) { filter = me; store.set("filter", filter); }
   startApp();
 });
@@ -586,5 +636,106 @@ function startApp() {
     cfg = await (await fetch("api/config")).json();
   } catch { /* offline: fall back to defaults */ cfg.porters = ["Tom", "Jeet", "Robinson", "Pablo", "Ricardo", "Wilson"]; }
   if (filter && filter !== "__none" && !cfg.porters.includes(filter)) filter = null;
-  if (me && (pin || !cfg.pinRequired)) startApp(); else showLogin();
+  if (me && (pin || !cfg.pinRequired)) { startApp(); syncPush(); } else showLogin();
 })();
+
+// ---------- new-job alerts (in the app) ----------
+// While the app is open: buzz and show a message when a job is newly given to me.
+function alertNewJobs() {
+  if (!me || !state) return;
+  const key = `seen.${me}`;
+  const mine = state.jobs.filter((j) => (j.date || "") >= state.today && (j.everyone || j.porters?.some((p) => p.name === me)));
+  const ids = mine.map((j) => j.id);
+  const seen = store.get(key, null);
+  store.set(key, ids);
+  if (!seen) return; // first time on this phone: nothing is "new"
+  const fresh = mine.filter((j) => !seen.includes(j.id));
+  if (!fresh.length) return;
+  navigator.vibrate?.([120, 60, 120]);
+  const j = fresh[0];
+  const t = jobTimes(j).start;
+  toast(fresh.length === 1
+    ? `New job for you: ${t != null ? fmtMin(t) + " · " : ""}${j.location || j.host || ""}`
+    : `${fresh.length} new jobs for you`);
+}
+
+// ---------- push notifications ----------
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const standalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window && Boolean(cfg.pushKey);
+const pushOn = () => pushSupported() && Notification.permission === "granted" && store.get("pushOn", false);
+
+function pushPromptHTML() {
+  if (pushOn() || Date.now() - store.get("pushLater", 0) < 3 * 86400000) return "";
+  if (pushSupported() && Notification.permission === "denied") return "";
+  if (isIOS && !standalone) {
+    return `<div class="banner tip"><div><b>Get notified about new jobs</b>On iPhone: tap Share, then <i>Add to Home Screen</i>. Open Porters from the new icon and turn notifications on.</div><button class="act" data-act="push-later">Later</button></div>`;
+  }
+  if (!pushSupported()) return "";
+  return `<div class="banner tip"><div><b>Get notified about new jobs</b>Your phone will buzz when you're given a job, even with the app closed.</div><div class="acts"><button class="act" data-act="push-on">Turn on</button><button class="act muted" data-act="push-later">Later</button></div></div>`;
+}
+
+function pushMenuItem() {
+  if (isIOS && !standalone) return `<li><button data-act="push-later">${icon("bell")}<span>Notifications<small>Add this app to your Home Screen first (Share → Add to Home Screen)</small></span></button></li>`;
+  if (!pushSupported()) return "";
+  if (Notification.permission === "denied") return `<li><button>${icon("bell")}<span>Notifications are blocked<small>Allow them for this site in your phone's settings</small></span></button></li>`;
+  return pushOn()
+    ? `<li><button data-act="push-off">${icon("bell")}<span>Notifications are on<small>Tap to turn off on this phone</small></span></button></li>`
+    : `<li><button data-act="push-on">${icon("bell")}<span>Turn on notifications<small>Get a message when you're given a job</small></span></button></li>`;
+}
+
+function keyBytes(b64) {
+  const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+async function subscription(create) {
+  const reg = await navigator.serviceWorker.register("sw.js");
+  await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub && create) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(cfg.pushKey) });
+  return sub;
+}
+
+async function enablePush() {
+  closeSheet();
+  if (!pushSupported()) return toast(isIOS ? "Add the app to your Home Screen first" : "This browser can't do notifications");
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") { toast("Notifications weren't allowed"); return render(); }
+    const sub = await subscription(true);
+    await api("api/push/subscribe", { method: "POST", body: { subscription: sub.toJSON() } });
+    store.set("pushOn", true);
+    render();
+    await api("api/push/test", { method: "POST" });
+    toast("Notifications are on");
+  } catch (e) {
+    console.error(e);
+    toast("Couldn't turn on notifications");
+  }
+}
+
+async function disablePush() {
+  closeSheet();
+  try {
+    const sub = await subscription(false);
+    if (sub) {
+      await api("api/push/unsubscribe", { method: "POST", body: { endpoint: sub.endpoint } }).catch(() => {});
+      await sub.unsubscribe();
+    }
+  } catch { /* already off */ }
+  store.set("pushOn", false);
+  toast("Notifications are off on this phone");
+  render();
+}
+
+/** Keeps the server's record of "this phone belongs to <me>" up to date. */
+async function syncPush() {
+  if (!pushOn() || !me) return;
+  try {
+    const sub = await subscription(false);
+    if (sub) await api("api/push/subscribe", { method: "POST", body: { subscription: sub.toJSON() } });
+    else store.set("pushOn", false);
+  } catch { /* try again next time */ }
+}

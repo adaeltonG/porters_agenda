@@ -11,7 +11,7 @@ import { isSheetFile, readSheetFile } from "./sheetfile.js";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const TIME_ZONE = process.env.TIME_ZONE || "Europe/London";
 
-const porters = () => (process.env.PORTERS || "Tom,Jeet,Robinson,Pablo,Ricardo,Wilson")
+const defaultPorters = () => (process.env.PORTERS || "Tom,Jeet,Robinson,Pablo,Ricardo,Wilson")
   .split(",").map((s) => s.trim()).filter(Boolean);
 
 export function today() {
@@ -21,7 +21,9 @@ export function today() {
 
 export { isSheetFile };
 
-export async function extractRows(files) {
+/** opts.porters: the team's names, used to fix OCR misspellings like "Robinsom". */
+export async function extractRows(files, opts = {}) {
+  const porters = opts.porters?.length ? opts.porters : defaultPorters();
   if (process.env.EXTRACT_MOCK === "1") {
     const raw = await fs.readFile(path.join(here, "mock-extraction.json"), "utf8");
     await new Promise((r) => setTimeout(r, 1200));
@@ -34,22 +36,22 @@ export async function extractRows(files) {
     throw new Error("Upload either the spreadsheet file or screenshots, not both at once.");
   }
 
-  if (sheets.length) return fromSheets(sheets);
+  if (sheets.length) return fromSheets(sheets, porters);
 
   if (process.env.EXTRACT_ENGINE === "claude" && process.env.ANTHROPIC_API_KEY) {
     const { extractWithClaude } = await import("./claude.js");
     return extractWithClaude(images);
   }
-  return fromScreenshots(images);
+  return fromScreenshots(images, porters);
 }
 
-async function fromSheets(files) {
+async function fromSheets(files, porters) {
   let rows = [];
   const warnings = [];
   let tabsWithHeader = 0;
   for (const file of files) {
     for (const tab of await readSheetFile(file)) {
-      const r = interpretTable(tab.table, { porters: porters() });
+      const r = interpretTable(tab.table, { porters });
       if (!r.map) continue;
       tabsWithHeader++;
       rows.push(...r.rows);
@@ -65,7 +67,7 @@ async function fromSheets(files) {
   return { rows: day.rows, warnings };
 }
 
-async function fromScreenshots(files) {
+async function fromScreenshots(files, porters) {
   const { readScreenshot } = await import("./screenshot.js");
   let rows = [];
   const warnings = [];
@@ -75,7 +77,7 @@ async function fromScreenshots(files) {
     const { table, lastRowCut } = await readScreenshot(file.buffer);
     // a follow-on screenshot without the header row reuses the first one's columns
     const usable = map && table[0]?.length === map.length ? map : null;
-    const r = interpretTable(table, { ocr: true, porters: porters(), map: usable, label });
+    const r = interpretTable(table, { ocr: true, porters, map: usable, label });
     if (!r.map) {
       throw new Error(`${label}Couldn't find the header row (Owner, Requestor, Activity Date…). Include it in the screenshot.`);
     }

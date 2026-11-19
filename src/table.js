@@ -134,7 +134,7 @@ function parseOwner(raw) {
 
 // ---------- OCR clean-up (screenshots only) ----------
 
-function levenshtein(a, b) {
+export function levenshtein(a, b) {
   const dp = Array.from({ length: b.length + 1 }, (_, i) => i);
   for (let i = 1; i <= a.length; i++) {
     let prev = dp[0]; dp[0] = i;

@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1f7a55">
+  <title>Porters Admin</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="app.css?v=2">
+  <link rel="stylesheet" href="admin.css?v=2">
+</head>
+<body class="admin">
+  <!-- Login -->
+  <section id="login" class="login" hidden>
+    <div class="logo"><svg class="i"><use href="#i-table"/></svg></div>
+    <h1>Porters Admin</h1>
+    <p>Enter the admin PIN.</p>
+    <form id="loginForm">
+      <label class="f">Admin PIN
+        <input class="in" id="pin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="••••" required>
+      </label>
+      <div class="err" id="loginErr"></div>
+      <button class="btn primary block" type="submit">Continue</button>
+    </form>
+    <p class="back"><a href="./">← Back to the team app</a></p>
+  </section>
+
+  <div id="app" hidden>
+    <header class="a-top">
+      <div class="a-wrap a-bar">
+        <div class="a-brand"><svg class="i"><use href="#i-trolley"/></svg><b>Porters</b><span>Admin</span></div>
+        <nav class="a-tabs" id="tabs">
+          <button data-tab="agenda" aria-pressed="true">Agenda</button>
+          <button data-tab="history">History</button>
+          <button data-tab="hosts">Hosts</button>
+          <button data-tab="porters">Porters</button>
+        </nav>
+        <div class="a-live"><span class="dot" id="syncDot"></span><span id="syncText">Loading…</span></div>
+        <a class="btn small" href="./">Team app</a>
+        <button class="btn small" id="logout">Log out</button>
+      </div>
+    </header>
+
+    <main class="a-wrap">
+      <!-- Agenda -->
+      <section id="tab-agenda">
+        <div class="a-dayhead">
+          <div class="a-datenav">
+            <button class="icon-btn" data-day-step="-1" aria-label="Previous day"><svg class="i"><use href="#i-left"/></svg></button>
+            <input class="in" type="date" id="dateIn" aria-label="Day">
+            <button class="icon-btn" data-day-step="1" aria-label="Next day"><svg class="i"><use href="#i-right"/></svg></button>
+            <button class="btn small" id="todayBtn">Today</button>
+          </div>
+          <h1 id="dayTitle"></h1>
+          <div class="a-actions">
+            <button class="btn small" id="shotBtn" hidden><svg class="i"><use href="#i-image"/></svg>Screenshot</button>
+            <button class="btn small" id="addBtn"><svg class="i"><use href="#i-plus"/></svg>Add job</button>
+            <button class="btn small primary" id="uploadBtn"><svg class="i"><use href="#i-upload"/></svg>Upload agenda</button>
+          </div>
+        </div>
+        <div class="a-stats" id="stats"></div>
+        <div id="notices"></div>
+        <div class="a-tablewrap">
+          <table class="a-table" id="table">
+            <thead><tr>
+              <th>Time</th><th>Location</th><th>Host</th><th>Guests</th><th>Tasks</th><th class="col-porters">Porters</th><th>Notes</th><th></th>
+            </tr></thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+        <p class="a-legend"><span class="sw done"></span>All done <span class="sw part"></span>In progress <span class="sw none"></span>Needs porters · Ticks show up here within a few seconds.</p>
+      </section>
+
+      <!-- History -->
+      <section id="tab-history" hidden>
+        <h1>History</h1>
+        <p class="a-sub">Every day that had an agenda. Click a day to see who did what.</p>
+        <div class="a-tablewrap">
+          <table class="a-table">
+            <thead><tr><th>Day</th><th>Jobs</th><th>Tasks done</th><th>No porter</th></tr></thead>
+            <tbody id="historyRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Hosts -->
+      <section id="tab-hosts" hidden>
+        <h1>Hosts</h1>
+        <p class="a-sub">The names offered in the Host dropdown. Names read from an agenda are matched to this list (so small spelling slips from screenshots get corrected).</p>
+        <form class="a-addrow" id="hostForm">
+          <input class="in" name="name" placeholder="Add a host, e.g. Niamh Keenan" required maxlength="80">
+          <button class="btn primary" type="submit">Add</button>
+        </form>
+        <div id="unlisted"></div>
+        <h2 class="a-h2">On the list <span id="hostCount"></span></h2>
+        <input class="in a-search" id="hostSearch" placeholder="Search hosts">
+        <ul class="a-list" id="hostList"></ul>
+      </section>
+
+      <!-- Porters -->
+      <section id="tab-porters" hidden>
+        <h1>Porters</h1>
+        <p class="a-sub">The team members people pick from when they log in, and in the Porters dropdown. Removing someone keeps their past jobs in the history.</p>
+        <form class="a-addrow" id="porterForm">
+          <input class="in" name="name" placeholder="Add a porter" required maxlength="40">
+          <button class="btn primary" type="submit">Add</button>
+        </form>
+        <ul class="a-list" id="porterList"></ul>
+      </section>
+    </main>
+  </div>
+
+  <dialog class="sheet" id="sheet">
+    <div class="grab"></div>
+    <div class="sheet-head">
+      <h2 id="sheetTitle"></h2>
+      <button class="icon-btn" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="sheet-body" id="sheetBody"></div>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4"/></symbol>
+    <symbol id="i-left" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+    <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3 19c.6-3.2 3-5 6-5s5.4 1.8 6 5"/><circle cx="17" cy="9" r="2.5"/><path d="M16.5 14c2.5 0 4 1.5 4.5 4"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0112 0v5l1.5 2h-15L6 16zM10 20a2 2 0 004 0"/></symbol>
+    <symbol id="i-table" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 10v10"/></symbol>
+    <symbol id="i-trolley" viewBox="0 0 24 24"><path d="M5 3v14h14M9 13V7h9v6H9z"/><circle cx="7" cy="20" r="1.5"/><circle cx="17" cy="20" r="1.5"/></symbol>
+  </svg>
+
+  <script src="admin.js?v=2" type="module"></script>
+</body>
+</html>
