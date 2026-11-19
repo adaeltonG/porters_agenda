@@ -1,5 +1,6 @@
 // Porters Agenda - client
 import { multiPicker } from "./picker.js?v=4";
+import { ask } from "./ask.js?v=1";
 import { timeInputHTML, wireTimeInputs } from "./timeinput.js";
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -390,8 +391,8 @@ async function loadHosts() {
 
 async function deleteJob(id) {
   const job = state.jobs.find((j) => j.id === id);
-  const what = [job?.location, (job?.hosts || []).join(", ")].filter(Boolean).join(" – ") || "this job";
-  if (!confirm(`Delete ${what}? Its ticks are deleted too. This can't be undone.`)) return;
+  const what = [job?.location, (job?.hosts || []).join(", ")].filter(Boolean).join(" – ");
+  if (!await ask({ title: "Delete this job?", name: what, text: "Its ticks are deleted too. This can't be undone.", ok: "Delete", danger: true })) return;
   try {
     await api(`api/jobs/${encodeURIComponent(id)}`, { method: "DELETE" });
     closeSheet();

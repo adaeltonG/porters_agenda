@@ -1,5 +1,6 @@
 // Porters Agenda - admin dashboard
 import { multiPicker } from "./picker.js?v=4";
+import { ask, askText } from "./ask.js?v=1";
 import { timeInputHTML, wireTimeInputs } from "./timeinput.js";
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -293,8 +294,8 @@ function showEdit(id) {
 
 async function deleteJob(id) {
   const job = day?.jobs.find((j) => j.id === id);
-  const what = [job?.location, (job?.hosts || []).join(", ")].filter(Boolean).join(" – ") || "this job";
-  if (!confirm(`Delete ${what}? Its ticks are deleted too. This can't be undone.`)) return;
+  const what = [job?.location, (job?.hosts || []).join(", ")].filter(Boolean).join(" – ");
+  if (!await ask({ title: "Delete this job?", name: what, text: "Its ticks are deleted too. This can't be undone.", ok: "Delete", danger: true })) return;
   try {
     await api(`api/jobs/${encodeURIComponent(id)}`, { method: "DELETE" });
     closeSheet();
@@ -470,11 +471,11 @@ document.addEventListener("click", async (e) => {
     case "add-day-hosts": return addDayHosts();
     case "add-new-hosts": return addCheckedHosts(el.closest(".unlisted"));
     case "host-del":
-      if (!confirm(`Remove ${el.dataset.name} from the host list? Past agendas keep the name.`)) return;
+      if (!await ask({ title: "Remove from the host list?", name: el.dataset.name, text: "Past agendas keep the name.", ok: "Remove", danger: true })) return;
       try { await api(`api/admin/hosts/${el.dataset.id}`, { method: "DELETE" }); loadHosts(); } catch (err) { toast(err.message); }
       return;
     case "host-rename": {
-      const name = prompt("New spelling", el.dataset.name);
+      const name = await askText({ title: "Change the spelling", value: el.dataset.name, label: "Host name" });
       if (!name || name.trim() === el.dataset.name) return;
       try { await api(`api/admin/hosts/${el.dataset.id}`, { method: "PUT", body: { name } }); loadHosts(); } catch (err) { toast(err.message); }
       return;
