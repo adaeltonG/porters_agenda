@@ -581,8 +581,28 @@ async function refresh(force) {
   }
 }
 setInterval(() => { if (document.visibilityState === "visible" && !pending && me) refresh(); }, 10000);
-setInterval(() => { if (document.visibilityState === "visible" && me && state && !pending) { render(); setSync(!$("#syncDot").classList.contains("bad")); } }, 60000);
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && me) refresh(); });
+// The "Now" line, "in 20 min" and "late" badges follow the clock: redraw exactly when the
+// minute changes, and straight away when the app comes back on screen (phones pause timers
+// while the app is in the background).
+let clockTimer;
+function clockTick() {
+  clearTimeout(clockTimer);
+  if (document.visibilityState === "visible" && me && state && !pending && !$("#app").hidden) {
+    rerenderAll();
+    setSync(!$("#syncDot").classList.contains("bad"));
+  }
+  const now = new Date();
+  clockTimer = setTimeout(clockTick, 60000 - (now.getSeconds() * 1000 + now.getMilliseconds()) + 250);
+}
+clockTick();
+function backOnScreen() {
+  if (document.visibilityState !== "visible" || !me) return;
+  clockTick();
+  refresh();
+}
+document.addEventListener("visibilitychange", backOnScreen);
+window.addEventListener("pageshow", backOnScreen);
+window.addEventListener("focus", backOnScreen);
 // tapping a notification while the app is open
 navigator.serviceWorker?.addEventListener("message", (e) => { if (e.data?.type === "refresh" && me) refresh(true); });
 
