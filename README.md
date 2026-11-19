@@ -1,6 +1,6 @@
 # Porters Agenda
 
-A phone-friendly version of the daily porters agenda. Someone uploads the screenshot from the group chat, Claude reads it, and every porter sees their jobs as cards they can tick off. Ticks sync between phones within about 10 seconds.
+A phone-friendly version of the daily porters agenda. Someone uploads the screenshot from the group chat (or the sheet file itself), the app reads it, and every porter sees their jobs as cards they can tick off. Ticks sync between phones within about 10 seconds.
 
 - Filter by porter (Tom, Jeet, Robinson, Pablo, Ricardo, Wilson), or "Unassigned"
 - Tick off each task (setup, tea/coffee/water, breakfast, lunch, afternoon, clear up, reset). The app records who ticked it and when.
@@ -17,7 +17,7 @@ cd /opt/porters-agenda
 
 # 2. Settings
 cp .env.example .env
-nano .env            # set ANTHROPIC_API_KEY and TEAM_PIN
+nano .env            # set TEAM_PIN
 
 # 3. Data folder the container can write to (the container runs as uid 1000)
 mkdir -p data && sudo chown 1000:1000 data
@@ -37,7 +37,7 @@ Paste the two `location` blocks from [deploy/nginx-porters.conf](deploy/nginx-po
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
-The longer timeout and the larger upload size limit matter: reading a screenshot can take up to a minute.
+The larger upload size limit matters for phone photos.
 
 ### Updating
 
@@ -54,25 +54,28 @@ docker compose up -d --build
 ## Daily use
 
 1. The boss posts the screenshot in the group chat.
-2. Anyone saves the image, opens the app and taps **Upload** (or ☰ → *Upload agenda screenshot*).
-3. After about 20–60 seconds the jobs appear on everyone's phone. Check them quickly against the screenshot; the app lists anything Claude wasn't sure about.
+2. Anyone saves the image, opens the app and taps **Upload** (or ☰ → *Upload agenda*).
+3. A few seconds later the jobs appear on everyone's phone. Check them quickly against the screenshot; the app lists anything it wasn't sure about.
+
+Even better, if you have the sheet: in Google Sheets choose *File → Download → Microsoft Excel (.xlsx)* (or *.csv*) and upload that file. It's read exactly, links come through, and if the file has several days the app shows today's (or the next day with jobs).
 
 If the agenda is split across two screenshots, pick both at once, or upload the second one with **Add more rows**. If the boss posts a corrected sheet, upload it with **Replace**. Ticks stay on the jobs that didn't change.
 
-## Costs
+## How the reading works (free, no AI service)
 
-Each upload sends the screenshot(s) to the Claude API once (model `claude-opus-5-5`). For one screenshot a day that comes to a few pence. Ticking, filtering and viewing cost nothing. The `TEAM_PIN` stops strangers from running up the bill.
+- **Sheet file (.xlsx / .csv)** – read cell by cell with `exceljs`. Exact.
+- **Screenshot** – `sharp` finds the table's cell borders, then each cell is read with Tesseract OCR (`tesseract.js`, runs on the server). The header row tells it which column is which, so the sheet's column widths can change. Merged cells, day headings ("THURSDAY") and multi-line cells are handled. It takes about 3 seconds. OCR can still slip on a letter or a digit, so the app asks for a quick check.
+  The screenshot must include the header row (Owner, Requestor…) and the cell borders. A second screenshot without the header is fine when uploaded together with the first.
 
-Refusal fallback is switched on (`fallbacks: "default"`). If the main model declines an image, the API retries it on another model automatically. Delete those two lines in `src/extract.js` to turn it off.
+Optional: set `EXTRACT_ENGINE=claude` and `ANTHROPIC_API_KEY` to read screenshots with Claude instead (a few pence per upload, see `src/claude.js`).
 
 ## Developing locally
 
 ```bash
 npm install
-# Fake mode: uses a hand-typed copy of the 18/11/2026 agenda, no API key needed
+TEAM_PIN=1234 node server.js
+# Fake mode for UI work: every upload returns a hand-typed copy of the 18/11/2026 agenda
 EXTRACT_MOCK=1 TEAM_PIN=1234 node server.js
-# Real mode
-ANTHROPIC_API_KEY=sk-ant-... TEAM_PIN=1234 node server.js
 ```
 
 Open http://localhost:3000.
@@ -82,7 +85,11 @@ Open http://localhost:3000.
 | Path | What it is |
 |---|---|
 | `server.js` | Express server: login PIN, upload, ticks, editing, saving `data/state.json` |
-| `src/extract.js` | Sends the screenshot to Claude and gets the rows back as structured JSON |
+| `src/extract.js` | Picks the reader for the uploaded files and returns the rows |
+| `src/screenshot.js` | Screenshot → table: grid detection + Tesseract OCR |
+| `src/sheetfile.js` | .xlsx / .csv → table |
+| `src/table.js` | Table → agenda rows (columns, times, dates, OCR clean-up). Shared by both readers |
+| `src/claude.js` | Optional Claude reader (`EXTRACT_ENGINE=claude`) |
 | `src/mock-extraction.json` | Fake reading of the 18/11 screenshot, used when `EXTRACT_MOCK=1` |
 | `public/` | The app: `index.html`, `app.css`, `app.js` (no build step) |
 | `deploy/nginx-porters.conf` | nginx snippet for `/porters/` |

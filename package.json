@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Mobile-first daily agenda for the porters team. Reads the daily spreadsheet screenshot with Claude.",
+  "description": "Mobile-first daily agenda for the porters team. Reads the daily sheet screenshot (free OCR) or the sheet file.",
   "main": "server.js",
   "scripts": {
     "start": "node --env-file-if-exists=.env server.js",
@@ -15,7 +15,11 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.10.0",
+    "@tesseract.js-data/eng": "^1.0.0",
+    "exceljs": "^4.4.0",
     "express": "^4.22.3",
-    "multer": "^2.5.0"
+    "multer": "^2.5.0",
+    "sharp": "^0.35.5",
+    "tesseract.js": "^7.0.0"
   }
 }

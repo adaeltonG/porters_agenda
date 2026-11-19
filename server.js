@@ -5,11 +5,11 @@ import fs from "node:fs/promises";
 import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { extractRows } from "./src/extract.js";
+import { extractRows, isSheetFile } from "./src/extract.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-// `npm run mock`: no API key needed, uploads return a hand-typed copy of the 18/11 agenda.
+// `npm run mock`: uploads return a hand-typed copy of the 18/11 agenda (for UI work).
 if (process.argv.includes("--mock")) {
   process.env.EXTRACT_MOCK = "1";
   process.env.TEAM_PIN ||= "1234";
@@ -167,14 +167,14 @@ app.get("/api/images/:name", auth, (req, res) => {
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 12 * 1024 * 1024, files: 6 },
-  fileFilter: (_req, file, cb) => cb(null, /^image\//.test(file.mimetype)),
+  fileFilter: (_req, file, cb) => cb(null, /^image\//.test(file.mimetype) || isSheetFile(file)),
 });
 
 let extracting = false;
 
 app.post("/api/upload", auth, upload.array("images", 6), async (req, res) => {
   const files = req.files || [];
-  if (!files.length) return res.status(400).json({ error: "Please choose at least one screenshot." });
+  if (!files.length) return res.status(400).json({ error: "Please choose a screenshot or the spreadsheet file (.xlsx / .csv)." });
   if (extracting) return res.status(409).json({ error: "Someone else is uploading right now. Try again in a minute." });
   const mode = req.body.mode === "append" ? "append" : "replace";
 
@@ -186,8 +186,9 @@ app.post("/api/upload", auth, upload.array("images", 6), async (req, res) => {
     const idCounts = {};
     const fresh = result.rows.map((r) => makeJob(r, idCounts));
 
+    // keep the screenshots so people can compare; a spreadsheet file isn't kept
     const names = [];
-    for (const [i, f] of files.entries()) {
+    for (const [i, f] of files.filter((f) => !isSheetFile(f)).entries()) {
       const ext = f.mimetype === "image/png" ? "png" : f.mimetype === "image/webp" ? "webp" : "jpg";
       const name = `${Date.now()}-${i}.${ext}`;
       await fs.writeFile(path.join(IMG_DIR, name), f.buffer);

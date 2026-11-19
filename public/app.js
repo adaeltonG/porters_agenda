@@ -375,7 +375,7 @@ async function showShots() {
 function showMenu() {
   sheet.dataset.kind = "menu";
   openSheet("Menu", `<ul class="menu-list">
-    <li><button data-act="upload">${icon("upload")}<span>Upload agenda screenshot<small>Paste from the group chat</small></span></button></li>
+    <li><button data-act="upload">${icon("upload")}<span>Upload agenda<small>Screenshot from the group chat, or the sheet file</small></span></button></li>
     <li><button data-act="add">${icon("plus")}<span>Add a job by hand</span></button></li>
     ${state?.images?.length ? `<li><button data-act="shots">${icon("image")}<span>View original screenshot</span></button></li>` : ""}
     <li><button data-act="refresh">${icon("refresh")}<span>Refresh</span></button></li>
@@ -385,6 +385,8 @@ function showMenu() {
 }
 
 // ---------- upload ----------
+const isImage = (f) => /^image\//.test(f.type) && !/\.(xlsx|csv)$/i.test(f.name);
+
 async function shrink(file) {
   // Phones produce huge photos; keep the long edge readable but under the API's size limit.
   try {
@@ -405,8 +407,8 @@ function showUpload() {
   sheet.dataset.kind = "upload";
   const hasJobs = state?.jobs?.length;
   openSheet("Upload agenda", `<form id="upForm">
-    <label class="drop" for="upFiles">${icon("upload")}<b>Choose screenshot(s)</b><span>Save the image from WhatsApp, then pick it here. Several images are fine if the agenda is long.</span></label>
-    <input id="upFiles" class="sr" type="file" accept="image/*" multiple>
+    <label class="drop" for="upFiles">${icon("upload")}<b>Choose screenshot or sheet file</b><span>Save the image from WhatsApp and pick it here (several are fine if the agenda is long), or pick the spreadsheet itself (.xlsx / .csv) for an exact copy.</span></label>
+    <input id="upFiles" class="sr" type="file" accept="image/*,.xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" multiple>
     <div class="thumbs" id="thumbs"></div>
     ${hasJobs ? `
     <label class="choice"><input type="radio" name="mode" value="replace" checked><span><b>Replace the agenda</b><small>Use for a new day or an updated sheet. Ticks are kept for jobs that haven't changed.</small></span></label>
@@ -416,18 +418,21 @@ function showUpload() {
   let files = [];
   $("#upFiles").addEventListener("change", (e) => {
     files = [...e.target.files].slice(0, 6);
-    $("#thumbs").innerHTML = files.map((f) => `<img src="${URL.createObjectURL(f)}" alt="">`).join("");
+    $("#thumbs").innerHTML = files.map((f) => isImage(f)
+      ? `<img src="${URL.createObjectURL(f)}" alt="">`
+      : `<span class="file-tile">${esc(f.name)}</span>`).join("");
     $("#upGo").disabled = !files.length;
-    $("#upGo").textContent = files.length > 1 ? `Read ${files.length} screenshots` : "Read screenshot";
+    $("#upGo").textContent = !files.every(isImage) ? "Read file"
+      : files.length > 1 ? `Read ${files.length} screenshots` : "Read screenshot";
   });
   $("#upForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const mode = new FormData(e.target).get("mode");
-    $("#sheetBody").innerHTML = `<div class="working"><div class="spinner"></div><b>Reading the agenda…</b><div style="color:var(--muted);margin-top:6px">This usually takes 20–60 seconds. Keep this screen open.</div></div>`;
+    $("#sheetBody").innerHTML = `<div class="working"><div class="spinner"></div><b>Reading the agenda…</b><div style="color:var(--muted);margin-top:6px">This usually takes a few seconds. Keep this screen open.</div></div>`;
     try {
       const fd = new FormData();
       fd.append("mode", mode);
-      for (const f of files) fd.append("images", await shrink(f));
+      for (const f of files) fd.append("images", isImage(f) ? await shrink(f) : f);
       const r = await api("api/upload", { method: "POST", body: fd });
       await refresh(true);
       $("#sheetBody").innerHTML = `<div class="working"><div class="done-tick" style="width:52px;height:52px;margin:0 auto 14px">${icon("check")}</div>
