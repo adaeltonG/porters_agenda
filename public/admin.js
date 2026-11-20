@@ -114,7 +114,9 @@ function renderAgenda() {
   if (!day) return;
   $("#dateIn").value = date;
   const isToday = date === day.today;
-  $("#dayTitle").textContent = (isToday ? "Today · " : "") + fmtDay(date);
+  $("#todayBtn").classList.toggle("on", isToday);
+  $("#todayBtn").title = isToday ? "You're looking at today" : "Go to today";
+  document.title = `${fmtDay(date, { weekday: "short", day: "numeric", month: "short" })} · Porters Admin`;
   $("#shotBtn").hidden = !day.upload?.images?.length;
 
   for (const b of document.querySelectorAll("#siteSeg [data-site]")) b.setAttribute("aria-pressed", b.dataset.site === siteFilter);
@@ -264,7 +266,7 @@ function whoHTML() {
     .filter(([, list]) => list.length)
     .map(([label, list]) => `<div class="who-grp"><span class="g">${esc(label)}</span>${list.map(chip).join("")}</div>`);
   const off = plan.filter((e) => !e.in);
-  if (off.length) groups.push(`<div class="who-grp offs"><span class="g">Off</span>${off.map(chip).join("")}</div>`);
+  if (off.length) groups.push(`<div class="who-grp offs">${off.map(chip).join("")}</div>`);
   return `<div class="a-who-head"><b>Who's in</b><span>tasks each · click a name if someone is off</span></div>${groups.join("")}`;
 }
 

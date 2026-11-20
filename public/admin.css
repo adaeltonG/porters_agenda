@@ -34,6 +34,8 @@ main h1 { font-size: 24px; margin: 0; letter-spacing: -.015em; }
 .a-datenav { display: flex; align-items: center; gap: 4px; }
 .a-datenav .in { margin: 0; width: auto; min-height: 40px; padding: 6px 10px; }
 .a-dayhead h1 { flex: 1; min-width: 200px; }
+#tab-agenda .a-seg { margin-left: auto; }
+#todayBtn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .a-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .a-stats { display: flex; gap: 18px; flex-wrap: wrap; margin: 14px 0 6px; font-size: 14px; color: var(--muted); }
 .a-stats b { color: var(--text); font-size: 16px; }
