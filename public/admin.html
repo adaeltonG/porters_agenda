@@ -7,7 +7,7 @@
   <title>Porters Admin</title>
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="app.css?v=5">
-  <link rel="stylesheet" href="admin.css?v=7">
+  <link rel="stylesheet" href="admin.css?v=8">
 </head>
 <body class="admin">
   <!-- Login -->
@@ -85,7 +85,7 @@
       <!-- Rota -->
       <section id="tab-rota" hidden>
         <h1>Rota</h1>
-        <p class="a-sub">Who works when, and where. AM = 06:30–15:30, PM = 09:00–18:00, "DSQ" = at DSQ that day. PTO, SIC, Sick and Off get no tasks. Upload the new rota each week, or change any day here.</p>
+        <p class="a-sub">Who works when, and where. AM = 06:30–15:30, PM = 09:00–18:00, "DSQ" = at DSQ that day. SIC = working alone on Level 37 (no tasks). PTO, Sick and Off = not working. Upload the new rota each week, or change any day here.</p>
         <div class="a-dayhead">
           <div class="a-datenav">
             <button class="icon-btn" data-act="week" data-step="-7" aria-label="Previous week"><svg class="i"><use href="#i-left"/></svg></button>
@@ -104,7 +104,7 @@
             <tbody id="rotaRows"></tbody>
           </table>
         </div>
-        <p class="a-legend"><span class="sw rin"></span>The Tower <span class="sw rdsq"></span>DSQ <span class="sw roff"></span>No tasks · "—" = not on the rota (works at their usual building).</p>
+        <p class="a-legend"><span class="sw rin"></span>The Tower <span class="sw rdsq"></span>DSQ <span class="sw roff"></span>Not working · SIC = alone on Level 37, no tasks · "—" = not on the rota (works at their usual building). Hover a name for their full name.</p>
 
         <h2 class="a-h2">Holidays booked</h2>
         <p class="a-sub">Book time off ahead – those days start as "off" without anyone having to remember. For a sick day, click their name in the Agenda's <b>Who's in</b> row.</p>
@@ -184,6 +184,6 @@
     <symbol id="i-trolley" viewBox="0 0 24 24"><path d="M5 3v14h14M9 13V7h9v6H9z"/><circle cx="7" cy="20" r="1.5"/><circle cx="17" cy="20" r="1.5"/></symbol>
   </svg>
 
-  <script src="admin.js?v=11" type="module"></script>
+  <script src="admin.js?v=13" type="module"></script>
 </body>
 </html>

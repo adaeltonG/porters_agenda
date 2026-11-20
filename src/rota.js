@@ -4,7 +4,8 @@
 //   Tom      | PM (9am to 6pm) | AM | ...  <- one row per person, one code per day
 //
 // Codes: AM = 06:30-15:30, PM = 09:00-18:00, "DSQ" after either = working at DSQ that day.
-// PTO (time off), SIC (Level 37 post), SICK, OFF, a blank or a black cell = no tasks that day.
+// SIC = working alone on Level 37: at work, but never given tasks.
+// PTO (time off), SICK, OFF, a blank or a black cell = not working that day.
 import { isSheetFile, readSheetFile } from "./sheetfile.js";
 import { levenshtein } from "./table.js";
 
@@ -36,11 +37,15 @@ export function normCode(text, dark = false) {
   return dark ? "OFF" : t.slice(0, 24);
 }
 
-/** A code -> { in, site, from, to, label }. Only AM / PM shifts get tasks. */
+/**
+ * A code -> { in, works, site, from, to, label }. `in` = gets tasks (AM / PM shifts only);
+ * `works` = at work that day (SIC is at work on Level 37, but gets no tasks).
+ */
 export function parseCode(code) {
   const m = /^(AM|PM)( DSQ)?$/.exec(code || "");
-  if (m) return { in: true, site: m[2] ? "dsq" : "tower", ...SHIFTS[m[1]], label: code };
-  return { in: false, site: null, from: null, to: null, label: CODE_LABEL[code] || code || "Off" };
+  if (m) return { in: true, works: true, site: m[2] ? "dsq" : "tower", ...SHIFTS[m[1]], label: code };
+  if (code === "SIC") return { in: false, works: true, site: "tower", from: null, to: null, label: "SIC" };
+  return { in: false, works: false, site: null, from: null, to: null, label: CODE_LABEL[code] || code || "Off" };
 }
 
 // ---------- reading the table ----------

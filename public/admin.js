@@ -137,7 +137,7 @@ function renderAgenda() {
 
   // notices
   let notices = "";
-  const stranded = (day.plan || []).filter((e) => !e.in).map((e) => ({ name: e.name, label: e.label, n: openTasks(e.name) })).filter((x) => x.n);
+  const stranded = (day.plan || []).filter((e) => !e.works).map((e) => ({ name: e.name, label: e.label, n: openTasks(e.name) })).filter((x) => x.n);
   if (stranded.length && date >= day.today) {
     notices += `<div class="notice off"><span><b>Off but still on jobs:</b> ${stranded.map((x) => `${esc(x.name)} (${esc(x.label)}, ${x.n} task${x.n > 1 ? "s" : ""})`).join(", ")}</span>
       <button class="btn small" data-act="move" data-names="${esc(JSON.stringify(stranded.map((x) => x.name)))}">${icon("shuffle")}Give them to others</button></div>`;
@@ -257,15 +257,16 @@ function whoHTML() {
     const sub = e.in ? shiftWord(e) : e.label;
     const tip = e.in
       ? `${e.name}: working ${e.from ? `${e.from}–${e.to}` : "all day"}${e.why === "marked" ? " (marked in by hand)" : ""} · ${n} task${n === 1 ? "" : "s"}. Click if they're off.`
+      : e.works ? `${e.name}: at work (${e.label}), never given tasks. Click if they're off.`
       : `${e.name}: ${e.label}${e.why === "marked" ? " (marked off by hand)" : ""}. Click if they're working after all.`;
-    return `<button class="wchip ${e.in ? "w-in" : "w-off"}${e.why === "marked" ? " marked" : ""}" data-act="who" data-name="${esc(e.name)}" data-in="${e.in ? 1 : 0}" title="${esc(tip)}">${esc(e.name)}${sub ? `<small>${esc(sub)}</small>` : ""}${e.in || n ? `<b>${n}</b>` : ""}</button>`;
+    return `<button class="wchip ${e.works ? "w-in" : "w-off"}${e.why === "marked" ? " marked" : ""}" data-act="who" data-name="${esc(e.name)}" data-in="${e.works ? 1 : 0}" title="${esc(tip)}">${esc(e.name)}${sub ? `<small>${esc(sub)}</small>` : ""}${e.in || n ? `<b>${n}</b>` : ""}</button>`;
   };
   const groups = Object.entries(SITES)
     .filter(([k]) => !siteFilter || k === siteFilter)
-    .map(([k, label]) => [label, plan.filter((e) => e.in && e.site === k)])
+    .map(([k, label]) => [label, plan.filter((e) => e.works && e.site === k)])
     .filter(([, list]) => list.length)
     .map(([label, list]) => `<div class="who-grp"><span class="g">${esc(label)}</span>${list.map(chip).join("")}</div>`);
-  const off = plan.filter((e) => !e.in);
+  const off = plan.filter((e) => !e.works);
   if (off.length) groups.push(`<div class="who-grp offs">${off.map(chip).join("")}</div>`);
   return `<div class="a-who-head"><b>Who's in</b><span>tasks each · click a name if someone is off</span></div>${groups.join("")}`;
 }
@@ -277,7 +278,7 @@ function porterWarnings(j) {
   for (const p of j.porters) {
     const e = planOf(p.name);
     if (!e) continue;
-    if (!e.in) { out.push(`${p.name} is off (${e.label})`); continue; }
+    if (!e.in) { out.push(e.works ? `${p.name} doesn't get tasks (${e.label})` : `${p.name} is off (${e.label})`); continue; }
     if (e.site && e.site !== (j.site || "tower")) { out.push(`${p.name} is at ${SITES[e.site]} that day`); continue; }
     if (e.from && heldTasks(j, p).some((t) => t.time && (toMin(t.time) < toMin(e.from) || toMin(t.time) >= toMin(e.to)))) out.push(`${p.name} works ${e.from}–${e.to}`);
   }
@@ -315,7 +316,7 @@ async function moveJobs(names) {
 function planSummaryHTML() {
   const plan = day.plan || [];
   const line = (label, list, sub) => (list.length ? `<li><b>${esc(label)}:</b> ${list.map((e) => `${esc(e.name)}${sub(e) ? ` <small>${esc(sub(e))}</small>` : ""}`).join(", ")}</li>` : "");
-  return `<ul class="plan-sum">${Object.entries(SITES).map(([k, l]) => line(l, plan.filter((e) => e.in && e.site === k), shiftWord)).join("")}${line("Off", plan.filter((e) => !e.in), (e) => e.label)}</ul>`;
+  return `<ul class="plan-sum">${Object.entries(SITES).map(([k, l]) => line(l, plan.filter((e) => e.works && e.site === k), (e) => (e.in ? shiftWord(e) : `${e.label}, no tasks`))).join("")}${line("Off", plan.filter((e) => !e.works), (e) => e.label)}</ul>`;
 }
 
 /** Upload form: which building the agenda is for, and anyone off that the rota doesn't know about. */
@@ -577,7 +578,7 @@ async function loadRota(week = rotaWeek || localToday()) {
 }
 
 const shortDay = (d) => fmtDay(d, { weekday: "short", day: "numeric", month: "short" });
-const codeClass = (code) => (/^(AM|PM) DSQ$/.test(code) ? "r-dsq" : /^(AM|PM)$/.test(code) ? "r-tower" : code ? "r-off" : "");
+const codeClass = (code) => (/^(AM|PM) DSQ$/.test(code) ? "r-dsq" : /^(AM|PM|SIC)$/.test(code) ? "r-tower" : code ? "r-off" : "");
 
 function renderRota() {
   const { dates, codes, plans, porters, codeList, today } = rota;
@@ -585,13 +586,13 @@ function renderRota() {
   $("#rotaShotBtn").hidden = !rota.upload?.images?.length;
   $("#rotaHead").innerHTML = `<tr><th>Name</th>${dates.map((d) => `<th class="${d === today ? "today" : ""}">${esc(fmtDay(d, { weekday: "short", day: "numeric" }))}</th>`).join("")}</tr>`;
   $("#rotaRows").innerHTML = porters.length ? porters.map((p) => `<tr>
-    <td class="rn"><b>${esc(p.name)}</b>${p.fullName && p.fullName !== p.name ? `<small>${esc(p.fullName)}</small>` : ""}<small>${esc(SITES[p.site] || p.site)}${p.tasks ? "" : " · never gets tasks"}</small></td>
+    <td class="rn" title="${esc([p.fullName, SITES[p.site], p.tasks ? "" : "never gets tasks"].filter(Boolean).join(" · "))}"><b>${esc(p.name)}</b>${p.site === "dsq" ? ` <span class="site-tag">DSQ</span>` : ""}${p.tasks ? "" : ` <small>no tasks</small>`}</td>
     ${dates.map((d) => {
       const code = codes[d]?.[p.name.toLowerCase()] || "";
       const e = plans[d]?.[p.name] || {};
       const opts = ["", ...codeList, ...(code && !codeList.includes(code) ? [code] : [])];
-      const note = e.why === "away" ? "Holiday" : e.why === "marked" ? (e.in ? "Marked in" : "Marked off") : e.why === "no-tasks" ? "No tasks" : !code ? `Not on rota – ${e.in ? SITES[e.site] : "off"}` : "";
-      return `<td class="rc ${e.in ? `r-${e.site}` : "r-off"}"><select class="in" data-rota data-date="${d}" data-name="${esc(p.name)}" aria-label="${esc(p.name)}, ${esc(shortDay(d))}">${opts.map((o) => `<option value="${esc(o)}"${o === code ? " selected" : ""}>${esc(o || "—")}</option>`).join("")}</select>${note ? `<small>${esc(note)}</small>` : ""}</td>`;
+      const note = e.why === "away" ? "Holiday" : e.why === "marked" ? (e.in ? "Marked in" : "Marked off") : e.why === "no-tasks" && code !== "SIC" ? "No tasks" : !code ? `Not on rota – ${e.works ? SITES[e.site] : "off"}` : "";
+      return `<td class="rc ${e.works ? `r-${e.site}` : "r-off"}"><select class="in" data-rota data-date="${d}" data-name="${esc(p.name)}" aria-label="${esc(p.name)}, ${esc(shortDay(d))}">${opts.map((o) => `<option value="${esc(o)}"${o === code ? " selected" : ""}>${esc(o || "—")}</option>`).join("")}</select>${note ? `<small>${esc(note)}</small>` : ""}</td>`;
     }).join("")}</tr>`).join("") : `<tr class="empty-row"><td colspan="8">No porters yet.</td></tr>`;
 
   const sel = $("#awayForm").elements.who;
@@ -608,7 +609,7 @@ function showRotaUpload() {
   sheet.dataset.kind = "rota";
   openSheet("Upload the rota", `<form id="rotaForm">
     <label class="drop" for="rotaFiles">${icon("upload")}<b>Choose the rota screenshot or file</b><span>A screenshot of the week (names down the side, dates along the top), or the rota spreadsheet (.xlsx / .csv).
-      AM = 06:30–15:30, PM = 09:00–18:00, "DSQ" = working at DSQ. PTO, SIC, Sick, Off, or a blank or blacked-out day = no tasks.</span></label>
+      AM = 06:30–15:30, PM = 09:00–18:00, "DSQ" = working at DSQ. SIC = working alone on Level 37 (no tasks). PTO, Sick, Off, or a blank or blacked-out day = not working.</span></label>
     <input id="rotaFiles" class="sr" type="file" accept="image/*,.xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" multiple>
     <div class="thumbs" id="rthumbs"></div>
     <p class="hint">Names are matched to your porters by first name (Jeet Chand Mehay → Jeet). Anyone new is added as a porter.</p>

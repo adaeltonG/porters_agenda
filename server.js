@@ -244,15 +244,16 @@ function planFor(date) {
   const away = new Set(store.awayOverlapping(date, date).map((a) => a.porter.toLowerCase()));
   return store.porters().map((p) => {
     const k = p.name.toLowerCase();
-    let e = { in: true, site: p.site, from: null, to: null, label: "", why: "usual" };
+    // in = gets tasks; works = at work (Carlos on SIC / "no tasks" is at work but gets none)
+    let e = { in: true, works: true, site: p.site, from: null, to: null, label: "", why: "usual" };
     if (rota.has(k)) e = { ...parseCode(rota.get(k)), why: "rota" };
-    if (e.in && !p.tasks) e = { ...e, in: false, label: "No tasks", why: "no-tasks" };
-    if (away.has(k)) e = { ...e, in: false, label: "Holiday", why: "away" };
-    const base = { in: e.in, label: e.label };
+    if (e.in && !p.tasks) e = { ...e, in: false, label: e.label && e.label !== "AM" && e.label !== "PM" ? e.label : "No tasks", why: "no-tasks" };
+    if (away.has(k)) e = { ...e, in: false, works: false, label: "Holiday", why: "away" };
+    const base = { in: e.in, works: e.works, label: e.label };
     if (marks.has(k)) {
       e = marks.get(k)
-        ? { ...e, in: false, label: "Off", why: "marked" }
-        : { ...e, in: true, site: e.site || p.site, label: e.in ? e.label : "In", why: "marked" };
+        ? { ...e, in: false, works: false, label: "Off", why: "marked" }
+        : { ...e, in: true, works: true, site: e.site || p.site, label: e.in ? e.label : "In", why: "marked" };
     }
     return { name: p.name, ...e, rota: rota.get(k) || "", base };
   });
@@ -333,7 +334,7 @@ function teamState(req) {
   const uploads = {}, plans = {};
   for (const d of new Set(jobs.map((j) => j.date))) {
     uploads[d] = dayUpload(d);
-    plans[d] = Object.fromEntries(planFor(d).map((e) => [e.name, { in: e.in, site: e.site, label: e.label, from: e.from, to: e.to }]));
+    plans[d] = Object.fromEntries(planFor(d).map((e) => [e.name, { in: e.in, works: e.works, site: e.site, label: e.label, from: e.from, to: e.to }]));
   }
   return { version: store.version, today: t, admin: Boolean(req.isAdmin), jobs, ticks: store.ticksFor(jobs.map((j) => j.id)), uploads, plans };
 }
@@ -701,8 +702,10 @@ app.post("/api/admin/dayoff", adminOnly, (req, res) => {
   const e = planFor(date).find((x) => x.name.toLowerCase() === str(req.body?.name).toLowerCase());
   if (!e) return res.status(404).json({ error: "No porter by that name" });
   const off = Boolean(req.body?.off);
-  // a mark that only repeats what the rota / holidays say anyway isn't kept
-  store.tx(() => { store.setDayOff(date, e.name, e.base.in === !off ? null : off); changed(); });
+  // a mark that only repeats what the rota / holidays say anyway isn't kept; "back in" for
+  // someone at work without tasks (SIC) just drops the mark, it doesn't give them tasks
+  const atWork = e.base.in || e.base.works;
+  store.tx(() => { store.setDayOff(date, e.name, off ? (atWork ? true : null) : (atWork ? null : false)); changed(); });
   const jobs = store.jobsOn(date);
   res.json({ ok: true, name: e.name, tasks: off ? openTasks(jobs, store.ticksFor(jobs.map((j) => j.id)), e.name) : 0 });
 });
@@ -755,7 +758,7 @@ app.get("/api/admin/rota", adminOnly, (req, res) => {
   const dates = Array.from({ length: 7 }, (_, i) => addDays(from, i));
   const codes = {};
   for (const r of store.rotaBetween(dates[0], dates[6])) (codes[r.date] ||= {})[r.porter.toLowerCase()] = r.code;
-  const plans = Object.fromEntries(dates.map((d) => [d, Object.fromEntries(planFor(d).map((e) => [e.name, { in: e.in, site: e.site, label: e.label, why: e.why }]))]));
+  const plans = Object.fromEntries(dates.map((d) => [d, Object.fromEntries(planFor(d).map((e) => [e.name, { in: e.in, works: e.works, site: e.site, label: e.label, why: e.why }]))]));
   const ups = dates.map((d) => store.uploadFor(d, "rota")).filter(Boolean).sort((a, b) => a.at.localeCompare(b.at));
   res.json({
     today: today(), dates, codes, plans, codeList: CODES, shifts: SHIFTS, sites: SITES,
@@ -827,7 +830,7 @@ app.post("/api/admin/rota", adminOnly, rotaFiles.array("files", 4), async (req, 
       if (!jobs.length) continue;
       const ticks = store.ticksFor(jobs.map((j) => j.id));
       for (const e of planFor(d)) {
-        const n = !e.in ? openTasks(jobs, ticks, e.name) : 0;
+        const n = !e.in && !e.works ? openTasks(jobs, ticks, e.name) : 0;
         if (n) clashes.push({ date: d, name: e.name, tasks: n, label: e.label });
       }
     }

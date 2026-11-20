@@ -174,7 +174,7 @@ function render() {
       : `<div class="banner"><div><b>This is the agenda for ${esc(fmtDay(selectedDay, true))}</b>Today's agenda hasn't been put up yet.</div></div>`;
   }
   const myDay = !asHost() && me ? state.plans?.[selectedDay]?.[me] : null;
-  if (!banner && myDay && !myDay.in) {
+  if (!banner && myDay && !myDay.in && !myDay.works) {
     banner = `<div class="banner"><div><b>You're off on ${esc(fmtDay(selectedDay, true))}</b>${esc(myDay.label === "Off" ? "Marked off" : myDay.label)} – you won't be given jobs that day.</div></div>`;
   } else if (!banner && myDay?.site === "dsq") {
     banner = `<div class="banner tip"><div><b>You're at DSQ on ${esc(fmtDay(selectedDay, true))}</b>${myDay.from ? `${esc(myDay.from)}–${esc(myDay.to)}` : ""}</div></div>`;
