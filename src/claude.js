@@ -28,7 +28,7 @@ const SCHEMA = {
         required: [
           "date", "owner", "requestor", "eventLead", "host", "vendor",
           "teaCoffee", "breakfast", "lunch", "afternoon", "clearUp", "setup", "reset",
-          "location", "attendees", "info", "porters",
+          "location", "attendees", "task", "info", "porters",
           "hasMenuLink", "hasAgendaLink", "hasFloorPlanLink",
         ],
         properties: {
@@ -47,6 +47,7 @@ const SCHEMA = {
           reset: slot,
           location: { type: "string" },
           attendees: { type: "string" },
+          task: { type: "string" },
           info: { type: "string" },
           porters: { type: "string" },
           hasMenuLink: { type: "boolean" },
@@ -68,6 +69,9 @@ Return one entry per job row, top to bottom. Rules:
 - Time columns (teaCoffee, breakfast, lunch, afternoon, clearUp, setup, reset): "N", "-" or empty means needed=false, time="", note="". Otherwise needed=true, time = the first time as 24-hour HH:MM (8:00am -> 08:00, 2:30 in an afternoon range -> 14:30), and note = any other text in the cell, for example "Refill at lunch. Clear with lunch", "until 07:30", "Barista team", "Put back plexi glass and chairs". "Y" means needed=true with no time. A time printed small in a corner of a cell still belongs to that cell.
 - clearUp and reset with a time are needed=true. A Movers row with nothing but a reset or setup still counts.
 - info: all readable text from the Info/Menu cell, joined with ". ". Truncated chip labels like "Allergen..." or "MENU - ..." can be summarised as "Menu", "Allergen matrix" or "AM" files; keep any free-text instructions word for word.
+- Cells that say "N", "N/A" or "-" are empty: return "" for text fields. A row whose cells are all N/N/A apart from the requestor, date or porters is not a job: leave it out.
+- attendees: only a head count ("20", "171"). If the No. of attendees cell instead says what to do (e.g. "L33 Flexroom Clean", "Return All Flipcharts", "Coffee cupboard"), put that text in task and leave attendees "". If it is a number with a remark ("171 (In total, not all at the same time)"), attendees is the number and the remark goes in info. Otherwise task is "".
+- A place written in a time column with no time (e.g. Clear up Time "L33" or "All Floors" while Location says "N") is the location, not a clear-up: put it in location and set that slot needed=false.
 - porters: the Assigned Porter cell exactly as written, e.g. "TCW : Wilson L:Pablo" or "Tom, Pablo, Robinson, Jeet". "-" means "".
 - hasMenuLink / hasAgendaLink / hasFloorPlanLink: true if that cell shows a link or file chip ("LINK HERE", "Menu and Matrix", a menu chip).
 - Merged cells: when one value spans several columns, put it in the column where it belongs by meaning (for example a long note about removing plexi glass goes in info).

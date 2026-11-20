@@ -86,7 +86,7 @@ async function fromScreenshots(files, porters) {
     warnings.push(...r.warnings);
     if (lastRowCut && r.rows.length) {
       const last = r.rows.at(-1);
-      warnings.push(`${label}The last row (${last.host || last.location}) is cut off at the bottom – check it, or add the next screenshot.`);
+      warnings.push(`${label}The last row (${last.task || last.host || last.location}) is cut off at the bottom – check it, or add the next screenshot.`);
     }
   }
   rows = dedupe(rows);

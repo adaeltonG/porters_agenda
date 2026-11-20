@@ -155,7 +155,7 @@ function renderAgenda() {
     const [s, e] = times(j);
     return `<tr class="${cls}" data-owner="${esc(j.owner)}" data-id="${esc(j.id)}">
       <td class="tm">${s == null ? "–" : s === e ? fmtMin(s) : `${fmtMin(s)}<br><span style="color:var(--muted);font-weight:600">– ${fmtMin(e)}</span>`}</td>
-      <td class="loc">${esc(j.location || "–")}<span class="own">${esc(j.owner === "Other" ? "" : j.owner)}${j.vendor ? ` · ${esc(j.vendor)}` : ""}</span>
+      <td class="loc">${j.task ? `<b class="task-name">${esc(j.task)}</b><br>` : ""}${esc(j.location || (j.task ? "" : "–"))}<span class="own">${esc(j.owner === "Other" ? "" : j.owner)}${j.vendor ? ` · ${esc(j.vendor)}` : ""}</span>
         <div class="row-acts">
           <button class="btn small" data-act="edit" data-job="${esc(j.id)}">${icon("edit")}Edit</button>
           <button class="btn small danger" data-act="delete" data-job="${esc(j.id)}">${icon("trash")}Delete</button>
@@ -180,7 +180,7 @@ function renderAgenda() {
     let timer;
     const pk = multiPicker(el, {
       options: day.porters, selected: (job.porters || []).map((p) => p.name), everyone: true, everyoneOn: job.everyone,
-      placeholder: "Assign porters", label: `Porters for ${job.location || job.host}`,
+      placeholder: "Assign porters", label: `Porters for ${job.task || job.location || job.host}`,
       onChange: (v) => {
         clearTimeout(timer);
         timer = setTimeout(() => savePorters(job.id, v), 700);
@@ -228,8 +228,9 @@ function showEdit(id) {
   const v = (k) => esc(job[k] ?? "");
   sheet.dataset.kind = "edit";
   openSheet(id ? "Edit job" : "Add a job", `<form id="editForm">
+    <label class="f">Task <span style="font-weight:500">– optional, e.g. "L33 Flexroom clean"</span><input class="in" name="task" value="${v("task")}"></label>
     <div class="grid2">
-      <label class="f">Location<input class="in" name="location" value="${v("location")}" required></label>
+      <label class="f">Location<input class="in" name="location" value="${v("location")}"></label>
       <label class="f">Guests<input class="in" name="attendees" inputmode="numeric" value="${v("attendees")}"></label>
       <label class="f">Vendor<input class="in" name="vendor" value="${v("vendor")}"></label>
       <label class="f">Team<select class="in" name="owner">${["Hospitality", "Movers", "Both", "Other"].map((o) => `<option${job.owner === o ? " selected" : ""}>${o}</option>`).join("")}</select></label>
@@ -294,7 +295,7 @@ function showEdit(id) {
 
 async function deleteJob(id) {
   const job = day?.jobs.find((j) => j.id === id);
-  const what = [job?.location, (job?.hosts || []).join(", ")].filter(Boolean).join(" – ");
+  const what = [job?.task, job?.location, (job?.hosts || []).join(", ")].filter(Boolean).join(" – ");
   if (!await ask({ title: "Delete this job?", name: what, text: "Its ticks are deleted too. This can't be undone.", ok: "Delete", danger: true })) return;
   try {
     await api(`api/jobs/${encodeURIComponent(id)}`, { method: "DELETE" });

@@ -237,8 +237,11 @@ function taskHTML(job, t, focus) {
   return `<li><button class="${cls}" data-act="tick" data-job="${esc(job.id)}" data-task="${t.key}" aria-pressed="${Boolean(tick)}">${inner}</button></li>`;
 }
 
+/** A job is named by its task ("L33 Flexroom Clean") when the sheet gives one, else its room. */
+const jobTitle = (job) => job.task || job.location || job.host || "Job";
+
 function cardHTML(job, { start, end, done }) {
-  const title = job.location || job.host || "Job";
+  const title = jobTitle(job);
   if (done && !expanded.has(job.id)) {
     return `<article class="card compact" data-owner="${esc(job.owner)}">
       <button class="head" data-act="expand" data-job="${esc(job.id)}">
@@ -249,7 +252,8 @@ function cardHTML(job, { start, end, done }) {
   }
   const highlight = filter && filter !== "__none" ? filter : null;
   const focus = highlight ? mySlots(job, highlight) : null;
-  const sub = [job.location ? job.host : "", job.vendor].filter(Boolean).join(" · ");
+  const place = job.task && job.location && !job.task.includes(job.location) ? job.location : "";
+  const sub = [place, title !== job.host ? job.host : "", job.vendor].filter(Boolean).join(" · ");
   const when = start == null ? "" : start === end ? `<b>${fmtMin(start)}</b>` : `<b>${fmtMin(start)}</b> – ${fmtMin(end)}`;
   return `<article class="card" data-owner="${esc(job.owner)}">
     <button class="head" data-act="detail" data-job="${esc(job.id)}">
@@ -284,15 +288,15 @@ function showDetail(id) {
   const { start, end } = jobTimes(job);
   const rows = [
     ["Time", start == null ? "" : start === end ? fmtMin(start) : `${fmtMin(start)} – ${fmtMin(end)}`],
-    ["Host", job.host], ["Vendor", job.vendor], ["Guests", job.attendees], ["Team", job.owner === "Other" ? "" : job.owner],
+    ["Location", job.task ? job.location : ""], ["Host", job.host], ["Vendor", job.vendor], ["Guests", job.attendees], ["Team", job.owner === "Other" ? "" : job.owner],
     ["Requestor", job.requestor], ["Event lead", job.eventLead], ["Sheet says", job.portersRaw],
   ].filter(([, v]) => v);
   const links = [job.links?.menu && "Menu / allergen matrix", job.links?.agenda && "Agenda", job.links?.floorPlan && "Floor plan"].filter(Boolean);
   const highlight = filter && filter !== "__none" ? filter : null;
   sheet.dataset.kind = "detail";
   sheet.dataset.job = id;
-  openSheet(job.host || "Job details", `<div class="detail">
-    <div class="detail-where">${esc(job.location || job.host)}</div>
+  openSheet(job.task ? "Job details" : job.host || "Job details", `<div class="detail">
+    <div class="detail-where">${esc(jobTitle(job))}</div>
     <div class="porters" style="padding:6px 0 4px">${porterChips(job, highlight)}</div>
     <ul class="tasks">${tasksOf(job).map((t) => taskHTML(job, t, highlight ? mySlots(job, highlight) : null)).join("")}</ul>
     ${canTick(job) ? "" : `<div class="hint">Only the porters on this job can tick it.</div>`}
@@ -314,8 +318,9 @@ function showEdit(id) {
   const v = (k) => esc(job[k] ?? "");
   sheet.dataset.kind = "edit";
   openSheet(id ? "Edit job" : "Add a job", `<form id="editForm">
+    <label class="f">Task <span style="font-weight:500">– optional, e.g. "L33 Flexroom clean"</span><input class="in" name="task" value="${v("task")}"></label>
     <div class="grid2">
-      <label class="f">Location<input class="in" name="location" value="${v("location")}" required></label>
+      <label class="f">Location<input class="in" name="location" value="${v("location")}"></label>
       <label class="f">Guests<input class="in" name="attendees" inputmode="numeric" value="${v("attendees")}"></label>
       <label class="f">Vendor<input class="in" name="vendor" value="${v("vendor")}"></label>
       <label class="f">Team<select class="in" name="owner">${["Hospitality", "Movers", "Both", "Other"].map((o) => `<option${job.owner === o ? " selected" : ""}>${o}</option>`).join("")}</select></label>
@@ -391,7 +396,7 @@ async function loadHosts() {
 
 async function deleteJob(id) {
   const job = state.jobs.find((j) => j.id === id);
-  const what = [job?.location, (job?.hosts || []).join(", ")].filter(Boolean).join(" – ");
+  const what = [job?.task, job?.location, (job?.hosts || []).join(", ")].filter(Boolean).join(" – ");
   if (!await ask({ title: "Delete this job?", name: what, text: "Its ticks are deleted too. This can't be undone.", ok: "Delete", danger: true })) return;
   try {
     await api(`api/jobs/${encodeURIComponent(id)}`, { method: "DELETE" });
@@ -681,7 +686,7 @@ function alertNewJobs() {
   const j = fresh[0];
   const t = jobTimes(j).start;
   toast(fresh.length === 1
-    ? `New job for you: ${t != null ? fmtMin(t) + " · " : ""}${j.location || j.host || ""}`
+    ? `New job for you: ${t != null ? fmtMin(t) + " · " : ""}${jobTitle(j)}`
     : `${fresh.length} new jobs for you`);
 }
 

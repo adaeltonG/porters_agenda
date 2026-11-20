@@ -139,6 +139,7 @@ function makeJob(row, { idCounts, ocr = false } = {}) {
     host: hosts.join(", "),
     vendor: blankish(row.vendor),
     location: blankish(row.location),
+    task: blankish(row.task), // what to do, when the sheet says it in words ("L33 Flexroom Clean")
     attendees: blankish(row.attendees),
     info: str(row.info),
     portersRaw,
@@ -156,7 +157,7 @@ function makeJob(row, { idCounts, ocr = false } = {}) {
     // IDs come from the row's content, so a re-posted or overlapping screenshot maps onto
     // the same jobs (and keeps their ticks and assignments) instead of duplicating them.
     const base = crypto.createHash("sha1")
-      .update([job.date, job.owner, job.host, job.location].join("|").toLowerCase())
+      .update([job.date, job.owner, job.host, job.location, ...(job.task ? [job.task] : [])].join("|").toLowerCase())
       .digest("hex").slice(0, 10);
     const n = (idCounts[base] = (idCounts[base] || 0) + 1);
     job.id = n > 1 ? `${base}-${n}` : base;
@@ -181,6 +182,7 @@ function dayLabel(date) {
 function describeJob(job) {
   const tasks = SLOT_KEYS.filter((k) => job.slots?.[k]?.needed);
   const first = tasks.map((k) => job.slots[k].time).filter(Boolean).sort()[0];
+  if (!tasks.length && job.task) return `${job.task}${job.location && !job.task.includes(job.location) ? ` · ${job.location}` : ""}`;
   const what = tasks.length === 1 ? SLOT_LABEL[tasks[0]] : tasks.length ? `${tasks.length} tasks` : "Job";
   return `${first ? first + " " : ""}${what} · ${job.location || job.host || "see app"}${job.location && job.host ? ` (${job.host})` : ""}`;
 }

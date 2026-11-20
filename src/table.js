@@ -36,6 +36,36 @@ const SLOTS = ["teaCoffee", "breakfast", "lunch", "afternoon", "clearUp", "setup
 const WEEKDAY = /^(mon|tues?|wed(nes)?|thu(rs)?|fri|sat(ur)?|sun)(day)?\b/i;
 
 const norm = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
+/** The sheet fills unused cells with "N", "N/A" or "-": those mean nothing to do. */
+const BLANK_RE = /^(n|no|-+|n\/a|na|none|null|x)$/i;
+const blank = (s) => (BLANK_RE.test(norm(s)) ? "" : norm(s));
+
+// "20", "20 pax", "approx 20", "20-25", "~30 guests"
+const GUESTS_RE = /^(?:approx\.?|around|about|c\.|~|max\.?|up to)?\s*\d+\s*(?:(?:-|–|to)\s*\d+)?\s*(?:pax|people|guests?|attendees|ppl|persons?)?\s*\+?$/i;
+// a place typed into a time column: "L33", "L26-C18", "31-C20", "All Floors", "Level 4"
+const PLACE_RE = /^(?:L\s?\d{1,2}\b.{0,15}|\d{2}\s*-\s*C\d{2}.{0,10}|all\s+floors?|floors?\s+\d.{0,15}|level\s*\d{1,2}.{0,15})$/i;
+
+/**
+ * "No. of attendees" holds a head count, but the sheet also uses it to say what to do
+ * ("L33 Flexroom Clean", "Return All Flipcharts"). Returns { attendees, task, note }.
+ */
+export function parseAttendees(raw) {
+  const text = blank(raw);
+  if (!text) return { attendees: "", task: "", note: "" };
+  if (GUESTS_RE.test(text)) return { attendees: text, task: "", note: "" };
+  // "171 (In total, overall, not all at the same time)" -> 171, and the remark as a note
+  const m = /^(\d+)\s*(?:pax|people|guests?|attendees)?\s*[(,;:-]/i.exec(text);
+  if (m) return { attendees: m[1], task: "", note: `Guests: ${text}` };
+  if (/[a-z]{3,}/i.test(text)) return { attendees: "", task: text, note: "" };
+  return { attendees: text, task: "", note: "" };
+}
+
+/** First sentence of free text, as a short job title. */
+function firstSentence(lines) {
+  const first = norm(lines[0] || "");
+  const cut = /^(.{8,80}?[.!?])(\s|$)/.exec(first);
+  return (cut ? cut[1] : first.slice(0, 80)).replace(/[.:;,]$/, "");
+}
 
 function matchHeader(text) {
   const t = norm(text).toLowerCase();
@@ -226,22 +256,33 @@ export function interpretTable(table, { ocr = false, porters = [], map: givenMap
     });
     const get = (k, sep = " ") => norm((f[k] || []).join(sep));
 
+    const guests = parseAttendees(get("attendees"));
     const row = {
       date: "",
       owner: parseOwner(get("owner")),
-      requestor: get("requestor"),
-      eventLead: get("eventLead"),
-      host: get("host"),
-      vendor: get("vendor"),
-      location: get("location", ", ").replace(/,\s*,/g, ",").replace(/([:-])\s*,/g, "$1"),
-      attendees: get("attendees"),
+      requestor: blank(get("requestor")),
+      eventLead: blank(get("eventLead")),
+      host: blank(get("host")),
+      vendor: blank(get("vendor")),
+      location: blank(get("location", ", ").replace(/,\s*,/g, ",").replace(/([:-])\s*,/g, "$1")),
+      attendees: guests.attendees,
+      task: guests.task,
       info: "",
-      porters: get("porters").replace(/(,\s*){2,}/g, ", ").replace(/^[,\s]+|[,\s]+$/g, ""),
+      porters: blank(get("porters").replace(/(,\s*){2,}/g, ", ").replace(/^[,\s]+|[,\s]+$/g, "")),
       hasMenuLink: false,
       hasAgendaLink: false,
       hasFloorPlanLink: false,
     };
     for (const s of SLOTS) row[s] = parseSlot(ocr ? fixOcrTimes(get(s)) : get(s));
+    // A place with no time in a time column ("Clear up: L33" while Location says "N") is the
+    // location typed one column off, not a clear-up to do.
+    for (const s of SLOTS) {
+      const sl = row[s];
+      if (sl.needed && !sl.time && PLACE_RE.test(sl.note)) {
+        if (!row.location) row.location = sl.note;
+        if (row.location === sl.note || row.task) row[s] = { needed: false, time: "", note: "" };
+      }
+    }
 
     let infoLines = f.info || [];
     if (ocr) {
@@ -257,27 +298,37 @@ export function interpretTable(table, { ocr = false, porters = [], map: givenMap
       return acc + join + line;
     }, ""));
     row.hasMenuLink = Boolean(links.info) || /menu|allergen|matrix|\bAM\b|\.\.\./i.test(row.info);
-    if (/^n$/i.test(row.info)) { row.info = ""; row.hasMenuLink = false; }
+    if (BLANK_RE.test(row.info)) { row.info = ""; row.hasMenuLink = false; }
 
+    let agendaText = [];
     for (const [key, flag] of [["agenda", "hasAgendaLink"], ["floorPlan", "hasFloorPlanLink"]]) {
-      const t = get(key);
+      const t = blank(get(key));
+      if (!t) continue;
       if (links[key] || /^(link\s*)?h[ea]re?\b|\blink\b|http|www\.|\.pdf/i.test(t)) row[flag] = true;
-      else if (t && !/^(n|-)$/i.test(t)) row.info = norm(`${row.info}${row.info ? ". " : ""}${t}`);
+      // a bare "HERE" or file chip is just the link; written instructions are kept as notes
+      const words = t.replace(/^(link\s*)?h[ea]re?\b|\blink\b/gi, "").trim().split(/\s+/).filter(Boolean);
+      if (!row[flag] || words.length >= 4) {
+        row.info = norm(`${row.info}${row.info ? ". " : ""}${t}`);
+        if (key === "agenda") agendaText = f.agenda || [];
+      }
     }
-
-    const attendees = /\d+/.exec(row.attendees);
-    if (attendees && row.attendees.length <= 6) row.attendees = attendees[0];
+    if (guests.note) row.info = norm(`${guests.note}${row.info ? ". " : ""}${row.info}`);
+    // a row whose only content is instructions in the Agenda cell: its first sentence names the job
+    if (!row.task && !row.host && !row.location && agendaText.length) {
+      row.task = firstSentence(agendaText);
+      if (row.info.startsWith(row.task)) row.info = row.info.slice(row.task.length).replace(/^[\s.:;,]+/, "");
+    }
 
     row.date = parseDate(get("date")) || lastDate;
     if (row.date) lastDate = row.date;
 
-    // a row needs something to act on
+    // a row needs something to act on: porters alone, with every other cell "N", is not a job
     const anySlot = SLOTS.some((s) => row[s].needed);
-    if (!row.host && !row.location && !row.porters && !anySlot) continue;
+    if (!row.host && !row.location && !row.task && !anySlot) continue;
 
-    const name = [row.host, row.location].filter(Boolean).join(" · ") || "a row";
+    const name = [row.task, row.host, row.location].filter(Boolean).join(" · ") || "a row";
     if (!row.date) warnings.push(`${label}Couldn't read a date for ${name}.`);
-    if (!row.location) warnings.push(`${label}Couldn't read a location for ${name}.`);
+    if (!row.location && !row.task) warnings.push(`${label}Couldn't read a location for ${name}.`);
     rows.push(row);
   }
 
@@ -291,7 +342,7 @@ export function interpretTable(table, { ocr = false, porters = [], map: givenMap
 export function dedupe(rows) {
   const seen = new Set();
   return rows.filter((r) => {
-    const k = [r.date, r.owner, r.host, r.location].join("|").toLowerCase();
+    const k = [r.date, r.owner, r.host, r.location, r.task || ""].join("|").toLowerCase();
     if (seen.has(k)) return false;
     seen.add(k);
     return true;
