@@ -199,3 +199,7 @@ dialog.sheet.wide { max-width: 760px; }
 .away-form select.in { min-width: 140px; }
 .warn li .btn { margin-left: 6px; min-height: 30px; }
 .notice.ok { margin-top: 12px; }
+.drop.slim { flex-direction: row; gap: 10px; padding: 14px 16px; }
+.drop.slim svg.i { width: 24px; height: 24px; }
+#upForm .who-list label { min-height: 36px; }
+#upForm #upGo { position: sticky; bottom: 0; box-shadow: 0 -10px 14px 4px var(--surface); }

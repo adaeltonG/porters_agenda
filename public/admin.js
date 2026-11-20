@@ -493,7 +493,7 @@ async function shrink(file) {
 function showUpload() {
   sheet.dataset.kind = "upload";
   openSheet("Upload agenda", `<form id="upForm">
-    <label class="drop" for="upFiles">${icon("upload")}<b>Choose screenshot or sheet file</b><span>A screenshot of the sheet (several are fine), or the spreadsheet itself (.xlsx / .csv) for an exact copy. Porter names in the sheet are read; anything without porters can be assigned here afterwards.</span></label>
+    <label class="drop slim" for="upFiles">${icon("upload")}<b>Choose screenshot or sheet file</b></label>
     <input id="upFiles" class="sr" type="file" accept="image/*,.xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" multiple>
     <div class="thumbs" id="thumbs"></div>
     ${uploadPeopleHTML(siteFilter)}
