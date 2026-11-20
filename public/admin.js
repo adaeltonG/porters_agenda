@@ -186,7 +186,7 @@ function renderAgenda() {
         return `<button class="tk${tk ? " on" : ""}${late ? " late" : ""}" data-act="tick" data-job="${esc(j.id)}" data-task="${t.key}" title="${esc(title)}">
           <span class="bx">${icon("check")}</span>${t.time ? `${esc(t.time)} ` : ""}${SHORT[t.key]}${tk ? ` <small>${esc(tk.by)} ${fmtClock(tk.at)}</small>` : ""}</button>`;
       }).join("")}</div></td>
-      <td class="porters-cell"><div class="pp" data-job="${esc(j.id)}"></div>${whoDoesWhat(j)}${porterWarnings(j)}${j.porterSource === "auto" ? `<div class="raw auto">${icon("shuffle")}Assigned automatically</div>` : ""}${j.portersRaw ? `<div class="raw">Sheet: ${esc(j.portersRaw)}</div>` : ""}</td>
+      <td class="porters-cell"><div class="pp" data-job="${esc(j.id)}"></div>${whoDoesWhat(j)}${porterWarnings(j)}${j.porterSource === "auto" ? `<div class="raw auto">${icon("shuffle")}Assigned automatically</div>` : ""}</td>
       <td class="nt"><div>${esc(j.info || "")}</div></td>
     </tr>`;
   }).join("");
@@ -280,7 +280,6 @@ function porterWarnings(j) {
     if (!e) continue;
     if (!e.in) { out.push(e.works ? `${p.name} doesn't get tasks (${e.label})` : `${p.name} is off (${e.label})`); continue; }
     if (e.site && e.site !== (j.site || "tower")) { out.push(`${p.name} is at ${SITES[e.site]} that day`); continue; }
-    if (e.from && heldTasks(j, p).some((t) => t.time && (toMin(t.time) < toMin(e.from) || toMin(t.time) >= toMin(e.to)))) out.push(`${p.name} works ${e.from}–${e.to}`);
   }
   if (j.porterSource === "auto" && j.porters.every((p) => roleKeys(p).length)) {
     const held = new Set(j.porters.flatMap(roleKeys));
