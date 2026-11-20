@@ -77,7 +77,7 @@ const ago = (iso) => {
 async function api(path, opts = {}) {
   const headers = { "x-team-pin": pin, "x-porter-name": encodeURIComponent(me || ""), ...(opts.headers || {}) };
   const adminPin = store.get("adminPin", "");
-  if (adminPin) headers["x-admin-pin"] = adminPin;
+  if (adminPin) { headers["x-admin-pin"] = adminPin; headers["x-admin-user"] = encodeURIComponent(store.get("adminUser", "")); }
   let body = opts.body;
   if (body && !(body instanceof FormData)) { headers["content-type"] = "application/json"; body = JSON.stringify(body); }
   const res = await fetch(path, { ...opts, headers, body });
@@ -172,6 +172,12 @@ function render() {
     banner = isAdmin()
       ? `<div class="banner"><div><b>This is the agenda for ${esc(fmtDay(selectedDay, true))}</b>Upload today's screenshot when it's posted.</div><button class="act" data-act="upload">Upload</button></div>`
       : `<div class="banner"><div><b>This is the agenda for ${esc(fmtDay(selectedDay, true))}</b>Today's agenda hasn't been put up yet.</div></div>`;
+  }
+  const myDay = !asHost() && me ? state.plans?.[selectedDay]?.[me] : null;
+  if (!banner && myDay && !myDay.in) {
+    banner = `<div class="banner"><div><b>You're off on ${esc(fmtDay(selectedDay, true))}</b>${esc(myDay.label === "Off" ? "Marked off" : myDay.label)} – you won't be given jobs that day.</div></div>`;
+  } else if (!banner && myDay?.site === "dsq") {
+    banner = `<div class="banner tip"><div><b>You're at DSQ on ${esc(fmtDay(selectedDay, true))}</b>${myDay.from ? `${esc(myDay.from)}–${esc(myDay.to)}` : ""}</div></div>`;
   }
   if (!banner) banner = asHost() ? homeScreenTipHTML() : pushPromptHTML();
   $("#banner").innerHTML = banner;
@@ -285,7 +291,7 @@ function cardHTML(job, { start, end, done }) {
   const when = start == null ? "" : start === end ? `<b>${fmtMin(start)}</b>` : `<b>${fmtMin(start)}</b> – ${fmtMin(end)}`;
   return `<article class="card" data-owner="${esc(job.owner)}">
     <button class="head" data-act="detail" data-job="${esc(job.id)}">
-      <div class="row1"><span class="when">${when}</span><span class="owner-tag">${esc(job.owner === "Other" ? "" : job.owner)}</span>
+      <div class="row1"><span class="when">${when}</span>${job.site === "dsq" ? `<span class="site-tag">DSQ</span>` : ""}<span class="owner-tag">${esc(job.owner === "Other" ? "" : job.owner)}</span>
         ${job.attendees ? `<span class="pax">${icon("people")}${esc(job.attendees)}</span>` : ""}</div>
       <div class="where">${esc(title)}</div>
       ${sub ? `<div class="who">${esc(sub)}</div>` : ""}
@@ -316,7 +322,7 @@ function showDetail(id) {
   const { start, end } = jobTimes(job);
   const rows = [
     ["Time", start == null ? "" : start === end ? fmtMin(start) : `${fmtMin(start)} – ${fmtMin(end)}`],
-    ["Location", job.task ? job.location : ""], ["Host", job.host], ["Vendor", job.vendor], ["Guests", job.attendees], ["Team", job.owner === "Other" ? "" : job.owner],
+    ["Building", job.site === "dsq" ? "DSQ" : ""], ["Location", job.task ? job.location : ""], ["Host", job.host], ["Vendor", job.vendor], ["Guests", job.attendees], ["Team", job.owner === "Other" ? "" : job.owner],
     ["Requestor", job.requestor], ["Event lead", job.eventLead], ["Sheet says", job.portersRaw],
   ].filter(([, v]) => v);
   const links = [job.links?.menu && "Menu / allergen matrix", job.links?.agenda && "Agenda", job.links?.floorPlan && "Floor plan"].filter(Boolean);
@@ -353,6 +359,7 @@ function showEdit(id) {
       <label class="f">Vendor<input class="in" name="vendor" value="${v("vendor")}"></label>
       <label class="f">Team<select class="in" name="owner">${["Hospitality", "Movers", "Both", "Other"].map((o) => `<option${job.owner === o ? " selected" : ""}>${o}</option>`).join("")}</select></label>
       <label class="f">Date<input class="in" type="date" name="date" value="${v("date")}"></label>
+      <label class="f">Building<select class="in" name="site">${[["tower", "The Tower"], ["dsq", "DSQ"]].map(([k, l]) => `<option value="${k}"${(job.site || "tower") === k ? " selected" : ""}>${l}</option>`).join("")}</select></label>
     </div>
     <div class="f">Host(s)<div id="hostPick"></div></div>
     <div class="f">Porters<div id="porterPick"></div></div>
@@ -501,7 +508,11 @@ function showUpload() {
     ${hasJobs ? `
     <label class="choice"><input type="radio" name="mode" value="replace" checked><span><b>Replace the agenda</b><small>Use for a new day or an updated sheet. Ticks and assigned porters are kept for jobs that haven't changed.</small></span></label>
     <label class="choice"><input type="radio" name="mode" value="append"><span><b>Add more rows</b><small>Use when the rest of the agenda is in another screenshot.</small></span></label>` : `<input type="hidden" name="mode" value="replace">`}
-    <label class="choice"><input type="checkbox" name="auto" checked><span><b>Assign porters automatically</b><small>Jobs the sheet leaves without porters are shared out fairly. You can change any of them afterwards.</small></span></label>
+    <div class="f" style="margin-top:12px">Which building is this agenda for?</div>
+    <div class="pick-chips">${[["tower", "The Tower"], ["dsq", "DSQ"]].map(([k, l], i) => `<label><input type="radio" name="site" value="${k}"${i ? "" : " checked"}>${l}</label>`).join("")}</div>
+    <label class="choice"><input type="checkbox" name="auto" checked><span><b>Assign porters automatically</b><small>Jobs the sheet leaves without porters are shared out fairly among the people working in that building (from the rota). You can change any of them afterwards.</small></span></label>
+    <div class="f">Anyone off that day? <span style="font-weight:500">Tap them – the rota and booked holidays already count.</span></div>
+    <div class="pick-chips off">${cfg.porters.map((n) => `<label><input type="checkbox" name="off" value="${esc(n)}">${esc(n)}</label>`).join("")}</div>
     <button class="btn primary block" id="upGo" type="submit" style="margin-top:16px" disabled>Read screenshot</button>
   </form>`);
   let files = [];
@@ -516,18 +527,21 @@ function showUpload() {
   });
   $("#upForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const mode = new FormData(e.target).get("mode");
+    const form = new FormData(e.target);
+    const mode = form.get("mode");
     const auto = e.target.elements.auto.checked;
     $("#sheetBody").innerHTML = `<div class="working"><div class="spinner"></div><b>Reading the agenda…</b><div style="color:var(--muted);margin-top:6px">This usually takes a few seconds. Keep this screen open.</div></div>`;
     try {
       const fd = new FormData();
       fd.append("mode", mode);
       fd.append("autoAssign", auto ? "1" : "0");
+      fd.append("site", form.get("site") || "tower");
+      fd.append("off", JSON.stringify(form.getAll("off")));
       for (const f of files) fd.append("images", isImage(f) ? await shrink(f) : f);
       const r = await api("api/upload", { method: "POST", body: fd });
       await refresh(true);
       $("#sheetBody").innerHTML = `<div class="working"><div class="done-tick" style="width:52px;height:52px;margin:0 auto 14px">${icon("check")}</div>
-        <b>Found ${r.count} job${r.count === 1 ? "" : "s"}</b><div style="color:var(--muted);margin-top:6px">Everyone's phone will update in a few seconds.<br>${r.autoAssigned ? `${r.autoAssigned} job${r.autoAssigned > 1 ? "s" : ""} without porters ${r.autoAssigned > 1 ? "were" : "was"} assigned automatically.<br>` : ""}Give the cards a quick check against the screenshot.</div></div>
+        <b>Found ${r.count} ${r.site === "dsq" ? "DSQ " : ""}job${r.count === 1 ? "" : "s"}</b><div style="color:var(--muted);margin-top:6px">Everyone's phone will update in a few seconds.<br>${r.autoAssigned ? `${r.autoAssigned} job${r.autoAssigned > 1 ? "s" : ""} without porters ${r.autoAssigned > 1 ? "were" : "was"} assigned automatically.<br>` : ""}Give the cards a quick check against the screenshot.</div></div>
         ${r.warnings?.length ? `<div class="warn"><b>Double-check these:</b><ul>${r.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>` : ""}
         <button class="btn primary block" data-close style="margin-top:16px">Done</button>`;
     } catch (err) {

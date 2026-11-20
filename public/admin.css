@@ -140,3 +140,60 @@ dialog.sheet.wide { max-width: 760px; }
 .load-list li:last-child { border-bottom: 0; }
 .load-list span { flex: 1; font-weight: 650; }
 .load-list small { color: var(--muted); }
+
+/* ---------- who's in, buildings, rota ---------- */
+.a-me { font-size: 13px; font-weight: 700; color: var(--muted); }
+.a-seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: 11px; background: var(--line); }
+.a-seg button { height: 34px; padding: 0 12px; border-radius: 9px; font-weight: 650; font-size: 14px; color: var(--muted); white-space: nowrap; }
+.a-seg button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+.site-tag { display: inline-block; padding: 0 5px; border-radius: 5px; background: var(--both); color: #fff; font-size: 10.5px; letter-spacing: .04em; }
+
+.a-who { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin: 4px 0 6px; }
+.a-who:empty { display: none; }
+.a-who-head { display: flex; align-items: baseline; gap: 8px; font-size: 14px; width: 100%; }
+.a-who-head span { color: var(--muted); font-size: 13px; }
+.who-grp { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.who-grp .g { font-size: 11px; font-weight: 750; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-right: 2px; }
+.wchip {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 6px 0 11px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--surface); font-weight: 650; font-size: 14px;
+}
+.wchip small { font-size: 11px; font-weight: 700; color: var(--muted); }
+.wchip b { min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font-size: 13px; }
+.wchip:hover { border-color: var(--faint); }
+.wchip.w-off { background: var(--late-soft); border-color: transparent; color: var(--late); padding-right: 11px; }
+.wchip.w-off small { color: inherit; opacity: .8; }
+.wchip.w-off b { background: var(--late); color: #fff; }
+.wchip.marked { border-style: dashed; border-color: currentColor; }
+.notice.off { background: var(--late-soft); }
+.raw.warnline { color: var(--late); font-weight: 650; }
+.plan-sum { list-style: none; padding: 0; margin: 0 0 8px; display: grid; gap: 4px; font-size: 14px; }
+.plan-sum small { color: var(--muted); font-weight: 700; }
+.off-pick label:has(input:checked) { border-color: var(--late); background: var(--late-soft); color: var(--late); }
+.off-pick input { accent-color: var(--late); }
+.a-list .nm small { display: block; font-size: 12px; font-weight: 500; color: var(--muted); }
+.a-list .p-site { width: auto; flex: none; }
+.p-tasks { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 650; white-space: nowrap; cursor: pointer; }
+.p-tasks input { width: 17px; height: 17px; accent-color: var(--accent); }
+
+.week-title { min-width: 190px; text-align: center; font-size: 16px; }
+.rota-table td, .rota-table th { padding: 6px 8px; }
+.rota-table th.today { color: var(--accent); }
+.rota-table .rn { min-width: 140px; }
+.rota-table .rn small, .mini-rota small { display: block; font-size: 12px; color: var(--muted); }
+.rota-table .rc select { margin: 0; min-height: 34px; padding: 4px 6px; font-size: 13.5px; font-weight: 650; min-width: 92px; background: transparent; }
+.rota-table .rc small { display: block; font-size: 11px; font-weight: 650; color: var(--muted); margin-top: 2px; }
+.rota-table td.r-tower, .mini-rota td.r-tower { background: var(--accent-soft); }
+.rota-table td.r-dsq, .mini-rota td.r-dsq { background: color-mix(in srgb, var(--both) 16%, var(--surface)); }
+.rota-table td.r-off, .mini-rota td.r-off { background: var(--late-soft); }
+.rota-table td.r-off small { color: var(--late); }
+.sw.rin { background: var(--accent-soft); } .sw.rdsq { background: color-mix(in srgb, var(--both) 16%, var(--surface)); } .sw.roff { background: var(--late-soft); }
+.mini-rota { font-size: 12.5px; }
+.mini-rota td, .mini-rota th { padding: 5px 7px; white-space: nowrap; }
+.mini-rota .new { font-size: 10.5px; font-weight: 750; text-transform: uppercase; color: var(--accent); }
+.away-form { flex-wrap: wrap; max-width: 720px; align-items: center; }
+.away-form label { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 650; color: var(--muted); }
+.away-form .in { flex: none; width: auto; }
+.away-form select.in { min-width: 140px; }
+.warn li .btn { margin-left: 6px; min-height: 30px; }
+.notice.ok { margin-top: 12px; }

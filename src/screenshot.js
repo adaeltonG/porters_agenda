@@ -202,7 +202,22 @@ export async function readScreenshot(buffer) {
   return { table, lastRowCut: grid.lastRowCut };
 }
 
-export async function readGrid(buffer) {
+/** Median grey level inside a box (a black-filled rota cell is very dark). */
+function median(g, W, x0, y0, x1, y1) {
+  const hist = new Uint32Array(256);
+  let n = 0;
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { hist[g[y * W + x]]++; n++; }
+  let acc = 0;
+  for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= n / 2) return v; }
+  return 255;
+}
+
+/**
+ * opts.merge (default true): join cells that have no border between them. The rota turns
+ * this off - its coloured rows hide some borders, and every day must be read on its own.
+ * opts.minColumns: how many columns a table needs before we believe it's the grid.
+ */
+export async function readGrid(buffer, { merge = true, minColumns = 8 } = {}) {
   const img = await sharp(buffer).rotate().toBuffer();
   const { data: g, info } = await sharp(img).greyscale().raw().toBuffer({ resolveWithObject: true });
   const W = info.width, H = info.height;
@@ -213,7 +228,7 @@ export async function readGrid(buffer) {
   const hLines = peaks(h, 0.3);
   const columns = bands(vLines, W, 12);
   const rowBands = bands(hLines, H, 12);
-  if (columns.length < 8 || rowBands.length < 2) {
+  if (columns.length < minColumns || rowBands.length < 2) {
     throw new Error("Couldn't find the table grid in this image. Make sure the screenshot shows the sheet with its cell borders.");
   }
 
@@ -224,7 +239,7 @@ export async function readGrid(buffer) {
     let cur = { c0: 0, c1: 0 };
     for (let c = 1; c < columns.length; c++) {
       const x = Math.round((columns[c - 1].b + columns[c].a) / 2);
-      if (hasVBorder(g, W, x, rb.a + 2, rb.b - 2)) { cells.push(cur); cur = { c0: c, c1: c }; }
+      if (!merge || hasVBorder(g, W, x, rb.a + 2, rb.b - 2)) { cells.push(cur); cur = { c0: c, c1: c }; }
       else cur.c1 = c;
     }
     cells.push(cur);
@@ -233,7 +248,8 @@ export async function readGrid(buffer) {
     for (const cell of cells) {
       const box = { x0: columns[cell.c0].a, x1: columns[cell.c1].b, y0: rb.a, y1: rb.b };
       const ink = findInk(g, W, box.x0 + 3, box.y0 + 3, box.x1 - 3, box.y1 - 3);
-      out.push({ col: cell.c0, span: cell.c1 - cell.c0 + 1, box, ink, text: ink ? null : "" });
+      const dark = median(g, W, box.x0 + 3, box.y0 + 3, box.x1 - 3, box.y1 - 3) < 70;
+      out.push({ col: cell.c0, span: cell.c1 - cell.c0 + 1, box, ink, dark, text: ink ? null : "" });
     }
     rows.push({ band: rb, cells: out });
   }

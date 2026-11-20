@@ -24,7 +24,11 @@ const SLOTS = [
 const SHORT = { setup: "Setup", teaCoffee: "Tea/coffee", breakfast: "Breakfast", lunch: "Lunch", afternoon: "Afternoon", clearUp: "Clear up", reset: "Reset", done: "Done" };
 
 let adminPin = store.get("adminPin", "");
+let adminUser = store.get("adminUser", "");
 let tab = "agenda";
+let siteFilter = store.get("siteFilter", "");   // "" = both buildings
+const SITES = { tower: "The Tower", dsq: "DSQ" };
+const TABS = ["agenda", "rota", "history", "hosts", "porters"];
 let date = null;
 let day = null;              // { jobs, ticks, upload, porters, hosts, newHosts, today, version }
 let deferred = false;        // a refresh arrived while a dropdown was open
@@ -52,7 +56,7 @@ const fmtMin = (m) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
 const unassigned = (job) => !job.everyone && !job.porters?.length;
 
 async function api(path, opts = {}) {
-  const headers = { "x-admin-pin": adminPin, ...(opts.headers || {}) };
+  const headers = { "x-admin-pin": adminPin, "x-admin-user": encodeURIComponent(adminUser), ...(opts.headers || {}) };
   let body = opts.body;
   if (body && !(body instanceof FormData)) { headers["content-type"] = "application/json"; body = JSON.stringify(body); }
   const res = await fetch(path, { ...opts, headers, body });
@@ -113,7 +117,8 @@ function renderAgenda() {
   $("#dayTitle").textContent = (isToday ? "Today · " : "") + fmtDay(date);
   $("#shotBtn").hidden = !day.upload?.images?.length;
 
-  const jobs = [...day.jobs].map((j) => ({ j, t: times(j) }))
+  for (const b of document.querySelectorAll("#siteSeg [data-site]")) b.setAttribute("aria-pressed", b.dataset.site === siteFilter);
+  const jobs = day.jobs.filter((j) => !siteFilter || (j.site || "tower") === siteFilter).map((j) => ({ j, t: times(j) }))
     .sort((a, b) => (a.t[0] ?? 1e9) - (b.t[0] ?? 1e9) || (a.t[1] ?? 1e9) - (b.t[1] ?? 1e9))
     .map((x) => x.j);
 
@@ -125,11 +130,16 @@ function renderAgenda() {
     <span><b>${jobs.length}</b> jobs</span>
     <span><b>${done}/${total}</b> tasks done</span><span class="bar"><i style="width:${total ? (done / total) * 100 : 0}%"></i></span>
     ${open ? `<span style="color:var(--soon)"><b style="color:inherit">${open}</b> without porters</span>` : ""}
-    ${day.upload ? `<span>Uploaded by ${esc(day.upload.by)} at ${fmtClock(day.upload.at)}</span>` : ""}
-    ${loadsHTML()}` : "";
+    ${uploadedHTML()}` : "";
+  $("#who").innerHTML = whoHTML();
 
   // notices
   let notices = "";
+  const stranded = (day.plan || []).filter((e) => !e.in).map((e) => ({ name: e.name, label: e.label, n: openTasks(e.name) })).filter((x) => x.n);
+  if (stranded.length && date >= day.today) {
+    notices += `<div class="notice off"><span><b>Off but still on jobs:</b> ${stranded.map((x) => `${esc(x.name)} (${esc(x.label)}, ${x.n} task${x.n > 1 ? "s" : ""})`).join(", ")}</span>
+      <button class="btn small" data-act="move" data-names="${esc(JSON.stringify(stranded.map((x) => x.name)))}">${icon("shuffle")}Give them to others</button></div>`;
+  }
   if (open && date >= day.today) {
     notices += `<div class="notice"><span><b>${open} job${open > 1 ? "s have" : " has"} no porters.</b> They can be shared out fairly in one go.</span>
       <button class="btn small" data-act="auto">${icon("shuffle")}Assign automatically</button></div>`;
@@ -148,7 +158,7 @@ function renderAgenda() {
   pickers.clear();
   const tbody = $("#rows");
   if (!jobs.length) {
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="7">No jobs on this day. ${date >= day.today ? "Upload the agenda or add a job." : ""}</td></tr>`;
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="7">No ${siteFilter ? SITES[siteFilter] + " " : ""}jobs on this day. ${date >= day.today ? "Upload the agenda or add a job." : ""}</td></tr>`;
     return;
   }
   const now = nowMin();
@@ -160,7 +170,7 @@ function renderAgenda() {
     const [s, e] = times(j);
     return `<tr class="${cls}" data-owner="${esc(j.owner)}" data-id="${esc(j.id)}">
       <td class="tm">${s == null ? "–" : s === e ? fmtMin(s) : `${fmtMin(s)}<br><span style="color:var(--muted);font-weight:600">– ${fmtMin(e)}</span>`}</td>
-      <td class="loc">${j.task ? `<b class="task-name">${esc(j.task)}</b><br>` : ""}${esc(j.location || (j.task ? "" : "–"))}<span class="own">${esc(j.owner === "Other" ? "" : j.owner)}${j.vendor ? ` · ${esc(j.vendor)}` : ""}</span>
+      <td class="loc">${j.task ? `<b class="task-name">${esc(j.task)}</b><br>` : ""}${esc(j.location || (j.task ? "" : "–"))}<span class="own">${j.site === "dsq" ? `<span class="site-tag">DSQ</span> ` : ""}${esc(j.owner === "Other" ? "" : j.owner)}${j.vendor ? ` · ${esc(j.vendor)}` : ""}</span>
         <div class="row-acts">
           <button class="btn small" data-act="edit" data-job="${esc(j.id)}">${icon("edit")}Edit</button>
           <button class="btn small danger" data-act="delete" data-job="${esc(j.id)}">${icon("trash")}Delete</button>
@@ -174,7 +184,7 @@ function renderAgenda() {
         return `<button class="tk${tk ? " on" : ""}${late ? " late" : ""}" data-act="tick" data-job="${esc(j.id)}" data-task="${t.key}" title="${esc(title)}">
           <span class="bx">${icon("check")}</span>${t.time ? `${esc(t.time)} ` : ""}${SHORT[t.key]}${tk ? ` <small>${esc(tk.by)} ${fmtClock(tk.at)}</small>` : ""}</button>`;
       }).join("")}</div></td>
-      <td class="porters-cell"><div class="pp" data-job="${esc(j.id)}"></div>${whoDoesWhat(j)}${j.porterSource === "auto" ? `<div class="raw auto">${icon("shuffle")}Assigned automatically</div>` : ""}${j.portersRaw ? `<div class="raw">Sheet: ${esc(j.portersRaw)}</div>` : ""}</td>
+      <td class="porters-cell"><div class="pp" data-job="${esc(j.id)}"></div>${whoDoesWhat(j)}${porterWarnings(j)}${j.porterSource === "auto" ? `<div class="raw auto">${icon("shuffle")}Assigned automatically</div>` : ""}${j.portersRaw ? `<div class="raw">Sheet: ${esc(j.portersRaw)}</div>` : ""}</td>
       <td class="nt"><div>${esc(j.info || "")}</div></td>
     </tr>`;
   }).join("");
@@ -204,12 +214,117 @@ function whoDoesWhat(job) {
   return `<div class="raw roles">${job.porters.map((p) => `<span><b>${esc(p.name)}:</b> ${p.roles?.length ? esc(p.roles.map((r) => SHORT[ROLE_SLOT[r]] || r).join(", ")) : "the rest"}</span>`).join("")}</div>`;
 }
 
-/** Tasks each person has that day, so it's easy to see the share is fair. */
-function loadsHTML() {
-  const names = [...new Set([...day.porters.filter((n) => day.roster.includes(n) || day.loads[n]), ...Object.keys(day.loads)])];
-  if (!names.length || !Object.keys(day.loads).length) return "";
-  return `<span class="a-loads">Tasks each: ${names.map((n) => `<span title="${esc(n)}: ${day.loads[n]?.tasks || 0} tasks, ${day.loads[n]?.teaBreakfast || 0} tea/coffee or breakfast">${esc(n)} <b>${day.loads[n]?.tasks || 0}</b></span>`).join("")}</span>`;
+// ---------- who's in ----------
+const roleKeys = (p) => (p.roles || []).map((r) => ROLE_SLOT[String(r).toUpperCase()]).filter(Boolean);
+/** The tasks a porter on a job holds: the ones their roles name, or all of them. */
+function heldTasks(job, p) {
+  const all = tasksOf(job);
+  const keys = roleKeys(p);
+  const mine = keys.length ? all.filter((t) => keys.includes(t.key)) : [];
+  return mine.length ? mine : all;
 }
+/** Tasks someone still has to do on this day (both buildings). */
+function openTasks(name) {
+  let n = 0;
+  for (const j of day.jobs) {
+    if (j.everyone) continue;
+    const p = (j.porters || []).find((x) => x.name === name);
+    if (p) n += heldTasks(j, p).filter((t) => !day.ticks[j.id]?.[t.key]).length;
+  }
+  return n;
+}
+const planOf = (name) => (day.plan || []).find((e) => e.name === name);
+const shiftWord = (e) => (/^(AM|PM)/.test(e.label || "") ? e.label.slice(0, 2) : "");
+
+/** "Uploaded by Jeet at 09:13" (one per building when both have an agenda that day). */
+function uploadedHTML() {
+  const ups = day.upload?.sites || [];
+  if (ups.length === 1) return `<span>Uploaded by ${esc(ups[0].by)} at ${fmtClock(ups[0].at)}</span>`;
+  return ups.map((u) => `<span>${esc(SITES[u.site] || u.site)}: uploaded by ${esc(u.by)} at ${fmtClock(u.at)}</span>`).join("");
+}
+
+/**
+ * Who's in that day, building by building, with how many tasks each has; then who's off.
+ * Clicking a name marks them off for the day (or back in).
+ */
+function whoHTML() {
+  const plan = day.plan || [];
+  if (!plan.length) return "";
+  const chip = (e) => {
+    const n = day.loads?.[e.name]?.tasks || 0;
+    const sub = e.in ? shiftWord(e) : e.label;
+    const tip = e.in
+      ? `${e.name}: working ${e.from ? `${e.from}–${e.to}` : "all day"}${e.why === "marked" ? " (marked in by hand)" : ""} · ${n} task${n === 1 ? "" : "s"}. Click if they're off.`
+      : `${e.name}: ${e.label}${e.why === "marked" ? " (marked off by hand)" : ""}. Click if they're working after all.`;
+    return `<button class="wchip ${e.in ? "w-in" : "w-off"}${e.why === "marked" ? " marked" : ""}" data-act="who" data-name="${esc(e.name)}" data-in="${e.in ? 1 : 0}" title="${esc(tip)}">${esc(e.name)}${sub ? `<small>${esc(sub)}</small>` : ""}${e.in || n ? `<b>${n}</b>` : ""}</button>`;
+  };
+  const groups = Object.entries(SITES)
+    .filter(([k]) => !siteFilter || k === siteFilter)
+    .map(([k, label]) => [label, plan.filter((e) => e.in && e.site === k)])
+    .filter(([, list]) => list.length)
+    .map(([label, list]) => `<div class="who-grp"><span class="g">${esc(label)}</span>${list.map(chip).join("")}</div>`);
+  const off = plan.filter((e) => !e.in);
+  if (off.length) groups.push(`<div class="who-grp offs"><span class="g">Off</span>${off.map(chip).join("")}</div>`);
+  return `<div class="a-who-head"><b>Who's in</b><span>tasks each · click a name if someone is off</span></div>${groups.join("")}`;
+}
+
+/** Problems with who's on a job: someone off that day, in the other building, or outside their shift. */
+function porterWarnings(j) {
+  if (j.everyone || !j.porters?.length) return "";
+  const out = [];
+  for (const p of j.porters) {
+    const e = planOf(p.name);
+    if (!e) continue;
+    if (!e.in) { out.push(`${p.name} is off (${e.label})`); continue; }
+    if (e.site && e.site !== (j.site || "tower")) { out.push(`${p.name} is at ${SITES[e.site]} that day`); continue; }
+    if (e.from && heldTasks(j, p).some((t) => t.time && (toMin(t.time) < toMin(e.from) || toMin(t.time) >= toMin(e.to)))) out.push(`${p.name} works ${e.from}–${e.to}`);
+  }
+  if (j.porterSource === "auto" && j.porters.every((p) => roleKeys(p).length)) {
+    const held = new Set(j.porters.flatMap(roleKeys));
+    const miss = tasksOf(j).filter((t) => !held.has(t.key));
+    if (miss.length) out.push(`Nobody on shift for: ${miss.map((t) => SHORT[t.key]).join(", ")}`);
+  }
+  return out.length ? `<div class="raw warnline">${out.map(esc).join("<br>")}</div>` : "";
+}
+
+async function toggleWho(name, isIn) {
+  try {
+    const r = await api("api/admin/dayoff", { method: "POST", body: { date, name, off: isIn } });
+    await loadDay(true);
+    if (!isIn) return toast(`${name} is working that day`);
+    if (r.tasks && date >= day.today && await ask({
+      title: `${name} is off. Move their ${r.tasks} task${r.tasks > 1 ? "s" : ""}?`,
+      text: "They go to the people working in the same building. Anything already ticked stays as it is.",
+      ok: "Move them",
+    })) return moveJobs([name]);
+    toast(`${name} marked off for the day`);
+  } catch (e) { toast(e.message); }
+}
+
+async function moveJobs(names) {
+  try {
+    const r = await api("api/admin/move", { method: "POST", body: { date, names } });
+    await loadDay(true);
+    toast(r.moved ? `Moved ${r.moved} job${r.moved > 1 ? "s" : ""}${r.left ? ` – ${r.left} still need${r.left > 1 ? "" : "s"} someone` : ""}` : "Nothing to move");
+  } catch (e) { toast(e.message); }
+}
+
+/** For the Auto-assign box: who's working where. */
+function planSummaryHTML() {
+  const plan = day.plan || [];
+  const line = (label, list, sub) => (list.length ? `<li><b>${esc(label)}:</b> ${list.map((e) => `${esc(e.name)}${sub(e) ? ` <small>${esc(sub(e))}</small>` : ""}`).join(", ")}</li>` : "");
+  return `<ul class="plan-sum">${Object.entries(SITES).map(([k, l]) => line(l, plan.filter((e) => e.in && e.site === k), shiftWord)).join("")}${line("Off", plan.filter((e) => !e.in), (e) => e.label)}</ul>`;
+}
+
+/** Upload form: which building the agenda is for, and anyone off that the rota doesn't know about. */
+function uploadPeopleHTML(site) {
+  const names = day?.porters || [];
+  return `<div class="f" style="margin-top:12px">Which building is this agenda for?</div>
+    <div class="who-list">${Object.entries(SITES).map(([k, l]) => `<label><input type="radio" name="site" value="${k}"${(site || "tower") === k ? " checked" : ""}>${esc(l)}</label>`).join("")}</div>
+    ${names.length ? `<div class="f">Anyone off that day? <span style="font-weight:500">Tap them. The rota and booked holidays already count.</span></div>
+    <div class="who-list off-pick">${names.map((n) => `<label><input type="checkbox" name="off" value="${esc(n)}">${esc(n)}</label>`).join("")}</div>` : ""}`;
+}
+
 
 // ---------- automatic porters ----------
 function showAuto() {
@@ -218,8 +333,9 @@ function showAuto() {
   const open = day.jobs.filter(unassigned).length;
   sheet.dataset.kind = "auto";
   openSheet("Assign porters automatically", `<form id="autoForm">
-    <p class="a-sub" style="margin-top:12px">Who's working on <b>${esc(fmtDay(date, { weekday: "long", day: "numeric", month: "long" }))}</b>? Untick anyone who's off.</p>
-    <div class="who-list">${day.porters.map((n) => `<label><input type="checkbox" name="p" value="${esc(n)}"${day.roster.includes(n) ? " checked" : ""}>${esc(n)}</label>`).join("")}</div>
+    <p class="a-sub" style="margin-top:12px">Working on <b>${esc(fmtDay(date, { weekday: "long", day: "numeric", month: "long" }))}</b> (from the rota):</p>
+    ${planSummaryHTML()}
+    <p class="hint" style="margin:0 0 10px">Someone off? Close this and tap their name in <b>Who's in</b> first.</p>
     <label class="choice"><input type="radio" name="mode" value="fill" checked><span><b>Jobs without porters${open ? ` (${open})` : ""}</b><small>Porters from the sheet, or ones you picked, stay as they are.</small></span></label>
     <label class="choice"><input type="radio" name="mode" value="redo"${autoJobs ? "" : " disabled"}><span><b>Shuffle the automatic picks again${autoJobs ? ` (${autoJobs})` : ""}</b><small>Also re-does jobs that were assigned automatically and haven't been ticked yet.</small></span></label>
     <details class="rules"><summary>How it picks</summary><ul>${(day.autoRules || []).map((r) => `<li>${esc(r)}</li>`).join("")}</ul></details>
@@ -228,10 +344,8 @@ function showAuto() {
   $("#autoForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
-    const porters = fd.getAll("p");
-    if (!porters.length) return toast("Tick at least one porter");
     try {
-      const r = await api("api/admin/autoassign", { method: "POST", body: { date, porters, redo: fd.get("mode") === "redo" } });
+      const r = await api("api/admin/autoassign", { method: "POST", body: { date, redo: fd.get("mode") === "redo" } });
       await loadDay(true);
       const loads = Object.entries(r.loads).sort((a, b) => b[1].tasks - a[1].tasks);
       $("#sheetBody").innerHTML = `<div class="working"><div class="done-tick" style="width:52px;height:52px;margin:0 auto 14px">${icon("check")}</div>
@@ -288,6 +402,7 @@ function showEdit(id) {
       <label class="f">Team<select class="in" name="owner">${["Hospitality", "Movers", "Both", "Other"].map((o) => `<option${job.owner === o ? " selected" : ""}>${o}</option>`).join("")}</select></label>
       <label class="f">Date<input class="in" type="date" name="date" value="${v("date")}" required></label>
       <label class="f">Requestor<input class="in" name="requestor" value="${v("requestor")}"></label>
+      <label class="f">Building<select class="in" name="site">${Object.entries(SITES).map(([k, l]) => `<option value="${k}"${(job.site || siteFilter || "tower") === k ? " selected" : ""}>${l}</option>`).join("")}</select></label>
     </div>
     <div class="f">Host(s) <span style="font-weight:500">– a new name is added to your host list</span><div id="hostPick"></div></div>
     <div class="f">Porters<div id="porterPick"></div></div>
@@ -379,9 +494,10 @@ function showUpload() {
     <label class="drop" for="upFiles">${icon("upload")}<b>Choose screenshot or sheet file</b><span>A screenshot of the sheet (several are fine), or the spreadsheet itself (.xlsx / .csv) for an exact copy. Porter names in the sheet are read; anything without porters can be assigned here afterwards.</span></label>
     <input id="upFiles" class="sr" type="file" accept="image/*,.xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" multiple>
     <div class="thumbs" id="thumbs"></div>
-    <label class="choice"><input type="radio" name="mode" value="replace" checked><span><b>Replace that day's agenda</b><small>For a new day or an updated sheet. Ticks and porters you assigned are kept for jobs that haven't changed; jobs added by hand stay.</small></span></label>
+    ${uploadPeopleHTML(siteFilter)}
+    <label class="choice"><input type="radio" name="mode" value="replace" checked><span><b>Replace that day's agenda</b><small>For a new day or an updated sheet of that building. Ticks and porters you assigned are kept for jobs that haven't changed; jobs added by hand stay.</small></span></label>
     <label class="choice"><input type="radio" name="mode" value="append"><span><b>Add more rows</b><small>When the rest of the agenda is in another screenshot.</small></span></label>
-    <label class="choice"><input type="checkbox" name="auto" checked><span><b>Assign porters automatically</b><small>Jobs the sheet leaves without porters are shared out fairly among ${day?.roster?.length && day.roster.length < day.porters.length ? `the ${day.roster.length} people working` : "the team"}. You can change any of them afterwards.</small></span></label>
+    <label class="choice"><input type="checkbox" name="auto" checked><span><b>Assign porters automatically</b><small>Jobs the sheet leaves without porters are shared out fairly among the people working in that building (from the rota). You can change any of them afterwards.</small></span></label>
     <button class="btn primary block" id="upGo" type="submit" style="margin-top:16px" disabled>Read it</button>
   </form>`);
   let files = [];
@@ -392,19 +508,22 @@ function showUpload() {
   });
   $("#upForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const mode = new FormData(e.target).get("mode");
+    const form = new FormData(e.target);
+    const mode = form.get("mode");
     const auto = e.target.elements.auto.checked;
     $("#sheetBody").innerHTML = `<div class="working"><div class="spinner"></div><b>Reading the agenda…</b><div style="color:var(--muted);margin-top:6px">Usually a few seconds.</div></div>`;
     try {
       const fd = new FormData();
       fd.append("mode", mode);
       fd.append("autoAssign", auto ? "1" : "0");
+      fd.append("site", form.get("site") || "tower");
+      fd.append("off", JSON.stringify(form.getAll("off")));
       for (const f of files) fd.append("images", isImage(f) ? await shrink(f) : f);
       const r = await api("api/upload", { method: "POST", body: fd });
       if (r.dates?.length && !r.dates.includes(date)) date = r.dates[0];
       await loadDay(true);
       $("#sheetBody").innerHTML = `<div class="working"><div class="done-tick" style="width:52px;height:52px;margin:0 auto 14px">${icon("check")}</div>
-        <b>Found ${r.count} job${r.count === 1 ? "" : "s"}${r.dates?.length ? ` for ${r.dates.map((d) => fmtDay(d, { weekday: "short", day: "numeric", month: "short" })).join(", ")}` : ""}</b>
+        <b>Found ${r.count} ${SITES[r.site] || ""} job${r.count === 1 ? "" : "s"}${r.dates?.length ? ` for ${r.dates.map((d) => fmtDay(d, { weekday: "short", day: "numeric", month: "short" })).join(", ")}` : ""}</b>
         <div style="color:var(--muted);margin-top:6px">${r.autoAssigned ? `${r.autoAssigned} job${r.autoAssigned > 1 ? "s" : ""} without porters ${r.autoAssigned > 1 ? "were" : "was"} assigned automatically – check the table. ` : ""}${r.unassigned ? `${r.unassigned} job${r.unassigned > 1 ? "s have" : " has"} no porters yet – assign them in the table.` : r.autoAssigned ? "" : "Every job has porters."}</div></div>
         ${r.newHosts?.length ? `<div class="unlisted"><h3>New host names</h3><p>Tick the ones to keep on your host list (untick any the screenshot misread).</p>
           <div class="names">${r.newHosts.map((h) => `<label><input type="checkbox" value="${esc(h)}" checked>${esc(h)}</label>`).join("")}</div>
@@ -429,18 +548,99 @@ async function addCheckedHosts(scope) {
   } catch (e) { toast(e.message); }
 }
 
-async function showShots() {
-  const up = day?.upload;
+async function showShots(up = day?.upload, title = "Original screenshot") {
   if (!up?.images?.length) return;
-  openSheet("Original screenshot", `<div class="shots" id="shots">${up.images.map(() => `<div class="shot"><div class="spinner" style="margin:30px auto"></div></div>`).join("")}</div>`, true);
+  openSheet(title, `<div class="shots" id="shots">${up.images.map(() => `<div class="shot"><div class="spinner" style="margin:30px auto"></div></div>`).join("")}</div>`, true);
   const holders = [...document.querySelectorAll("#shots .shot")];
   up.images.forEach(async (name, i) => {
     try {
-      const res = await fetch(`api/images/${encodeURIComponent(name)}`, { headers: { "x-admin-pin": adminPin } });
+      const res = await fetch(`api/images/${encodeURIComponent(name)}`, { headers: { "x-admin-pin": adminPin, "x-admin-user": encodeURIComponent(adminUser) } });
       if (!res.ok) throw new Error();
       holders[i].innerHTML = `<img src="${URL.createObjectURL(await res.blob())}" alt="Agenda screenshot ${i + 1}">`;
       holders[i].addEventListener("click", () => holders[i].classList.toggle("zoom"));
     } catch { holders[i].innerHTML = `<div style="padding:20px">Could not load image.</div>`; }
+  });
+}
+
+// ---------- rota ----------
+let rota = null;       // the week shown in the Rota tab
+let rotaWeek = null;   // its Monday
+
+async function loadRota(week = rotaWeek || localToday()) {
+  try {
+    rota = await api(`api/admin/rota?week=${week}`);
+    rotaWeek = rota.dates[0];
+    renderRota();
+  } catch (e) { toast(e.message); }
+}
+
+const shortDay = (d) => fmtDay(d, { weekday: "short", day: "numeric", month: "short" });
+const codeClass = (code) => (/^(AM|PM) DSQ$/.test(code) ? "r-dsq" : /^(AM|PM)$/.test(code) ? "r-tower" : code ? "r-off" : "");
+
+function renderRota() {
+  const { dates, codes, plans, porters, codeList, today } = rota;
+  $("#weekTitle").textContent = `${fmtDay(dates[0], { day: "numeric", month: "short" })} – ${fmtDay(dates[6], { day: "numeric", month: "short", year: "numeric" })}`;
+  $("#rotaShotBtn").hidden = !rota.upload?.images?.length;
+  $("#rotaHead").innerHTML = `<tr><th>Name</th>${dates.map((d) => `<th class="${d === today ? "today" : ""}">${esc(fmtDay(d, { weekday: "short", day: "numeric" }))}</th>`).join("")}</tr>`;
+  $("#rotaRows").innerHTML = porters.length ? porters.map((p) => `<tr>
+    <td class="rn"><b>${esc(p.name)}</b>${p.fullName && p.fullName !== p.name ? `<small>${esc(p.fullName)}</small>` : ""}<small>${esc(SITES[p.site] || p.site)}${p.tasks ? "" : " · never gets tasks"}</small></td>
+    ${dates.map((d) => {
+      const code = codes[d]?.[p.name.toLowerCase()] || "";
+      const e = plans[d]?.[p.name] || {};
+      const opts = ["", ...codeList, ...(code && !codeList.includes(code) ? [code] : [])];
+      const note = e.why === "away" ? "Holiday" : e.why === "marked" ? (e.in ? "Marked in" : "Marked off") : e.why === "no-tasks" ? "No tasks" : !code ? `Not on rota – ${e.in ? SITES[e.site] : "off"}` : "";
+      return `<td class="rc ${e.in ? `r-${e.site}` : "r-off"}"><select class="in" data-rota data-date="${d}" data-name="${esc(p.name)}" aria-label="${esc(p.name)}, ${esc(shortDay(d))}">${opts.map((o) => `<option value="${esc(o)}"${o === code ? " selected" : ""}>${esc(o || "—")}</option>`).join("")}</select>${note ? `<small>${esc(note)}</small>` : ""}</td>`;
+    }).join("")}</tr>`).join("") : `<tr class="empty-row"><td colspan="8">No porters yet.</td></tr>`;
+
+  const sel = $("#awayForm").elements.who;
+  const keep = sel.value;
+  sel.innerHTML = porters.map((p) => `<option${p.name === keep ? " selected" : ""}>${esc(p.name)}</option>`).join("");
+  $("#awayList").innerHTML = rota.away.length ? rota.away.map((a) => {
+    const range = a.end !== a.start ? `${shortDay(a.start)} – ${shortDay(a.end)}` : shortDay(a.start);
+    return `<li><span class="nm">${esc(a.porter)}</span><span class="meta">${esc(range)}${a.note ? ` · ${esc(a.note)}` : ""}</span>
+      <button class="btn small danger" data-act="away-del" data-id="${a.id}" data-what="${esc(`${a.porter}: ${range}`)}">Cancel</button></li>`;
+  }).join("") : `<li class="empty">No holidays booked. Add one above – that person gets no tasks on those days.</li>`;
+}
+
+function showRotaUpload() {
+  sheet.dataset.kind = "rota";
+  openSheet("Upload the rota", `<form id="rotaForm">
+    <label class="drop" for="rotaFiles">${icon("upload")}<b>Choose the rota screenshot or file</b><span>A screenshot of the week (names down the side, dates along the top), or the rota spreadsheet (.xlsx / .csv).
+      AM = 06:30–15:30, PM = 09:00–18:00, "DSQ" = working at DSQ. PTO, SIC, Sick, Off, or a blank or blacked-out day = no tasks.</span></label>
+    <input id="rotaFiles" class="sr" type="file" accept="image/*,.xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" multiple>
+    <div class="thumbs" id="rthumbs"></div>
+    <p class="hint">Names are matched to your porters by first name (Jeet Chand Mehay → Jeet). Anyone new is added as a porter.</p>
+    <button class="btn primary block" id="rotaGo" type="submit" style="margin-top:12px" disabled>Read the rota</button>
+  </form>`);
+  let files = [];
+  $("#rotaFiles").addEventListener("change", (e) => {
+    files = [...e.target.files].slice(0, 4);
+    $("#rthumbs").innerHTML = files.map((f) => isImage(f) ? `<img src="${URL.createObjectURL(f)}" alt="">` : `<span class="file-tile">${esc(f.name)}</span>`).join("");
+    $("#rotaGo").disabled = !files.length;
+  });
+  $("#rotaForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    $("#sheetBody").innerHTML = `<div class="working"><div class="spinner"></div><b>Reading the rota…</b><div style="color:var(--muted);margin-top:6px">Usually a few seconds.</div></div>`;
+    try {
+      const fd = new FormData();
+      for (const f of files) fd.append("files", isImage(f) ? await shrink(f) : f);
+      const r = await api("api/admin/rota", { method: "POST", body: fd });
+      if (tab === "rota") loadRota(r.dates[0]); else rotaWeek = r.dates[0];
+      if (tab === "agenda") loadDay(true);
+      const added = r.people.filter((p) => p.added);
+      $("#sheetBody").innerHTML = `<div class="working" style="padding-bottom:10px"><div class="done-tick" style="width:52px;height:52px;margin:0 auto 14px">${icon("check")}</div>
+        <b>Rota saved for ${esc(shortDay(r.dates[0]))} – ${esc(shortDay(r.dates.at(-1)))}</b>
+        <div style="color:var(--muted);margin-top:6px">Check it against the picture. Any day can be changed in the Rota tab.</div></div>
+        <div class="a-tablewrap"><table class="a-table mini-rota"><thead><tr><th></th>${r.dates.map((d) => `<th>${esc(fmtDay(d, { weekday: "short", day: "numeric" }))}</th>`).join("")}</tr></thead>
+        <tbody>${r.people.map((p) => `<tr><td><b>${esc(p.name)}</b>${p.added ? ` <span class="new">new</span>` : ""}${p.rota !== p.name ? `<small>${esc(p.rota)}</small>` : ""}</td>${r.dates.map((d) => `<td class="${codeClass(p.days[d])}">${esc(p.days[d] || "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
+        ${added.length ? `<div class="notice ok"><span><b>New porter${added.length > 1 ? "s" : ""} added:</b> ${added.map((p) => esc(p.name)).join(", ")}. Set anyone who never gets tasks in the Porters tab.</span></div>` : ""}
+        ${r.clashes.length ? `<div class="warn"><b>Off on the rota but already given jobs:</b><ul>${r.clashes.map((c) => `<li>${esc(shortDay(c.date))}: ${esc(c.name)} (${esc(c.label)}, ${c.tasks} task${c.tasks > 1 ? "s" : ""}) <button class="btn small" data-goto="${esc(c.date)}">Open that day</button></li>`).join("")}</ul></div>` : ""}
+        ${r.warnings?.length ? `<div class="warn"><b>Double-check these:</b><ul>${r.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>` : ""}
+        <button class="btn block" data-close style="margin-top:16px">Done</button>`;
+    } catch (err) {
+      $("#sheetBody").innerHTML = `<div class="working"><b>Couldn't read it</b><div style="color:var(--muted);margin-top:6px">${esc(err.message)}</div></div>
+        <button class="btn primary block" data-act="rota-up" style="margin-top:16px">Try again</button>`;
+    }
   });
 }
 
@@ -483,7 +683,9 @@ async function loadPorters() {
     const { porters, notifications } = await api("api/admin/porters");
     $("#porterList").innerHTML = porters.map((p) => {
       const n = notifications[p.name] || 0;
-      return `<li class="${p.active ? "" : "off"}"><span class="nm">${esc(p.name)}</span>
+      return `<li class="${p.active ? "" : "off"}"><span class="nm">${esc(p.name)}${p.fullName && p.fullName !== p.name ? `<small>${esc(p.fullName)}</small>` : ""}</span>
+        ${p.active ? `<select class="in p-site" data-porter-site="${p.id}" aria-label="${esc(p.name)}'s usual building">${Object.entries(SITES).map(([k, l]) => `<option value="${k}"${p.site === k ? " selected" : ""}>${l}</option>`).join("")}</select>
+        <label class="p-tasks" title="Untick for someone who is never given tasks (e.g. Carlos on Level 37)"><input type="checkbox" data-porter-tasks="${p.id}"${p.tasks ? " checked" : ""}>Gets tasks</label>` : ""}
         <span class="meta">${icon("bell")} ${n ? `${n} phone${n > 1 ? "s" : ""}` : "no notifications"}</span>
         <button class="btn small${p.active ? " danger" : ""}" data-act="porter-toggle" data-id="${p.id}" data-active="${p.active ? 0 : 1}">${p.active ? "Remove" : "Bring back"}</button></li>`;
     }).join("");
@@ -494,12 +696,13 @@ async function loadPorters() {
 function showTab(t) {
   tab = t;
   for (const b of document.querySelectorAll("#tabs button")) b.setAttribute("aria-pressed", b.dataset.tab === t);
-  for (const s of ["agenda", "history", "hosts", "porters"]) $(`#tab-${s}`).hidden = s !== t;
+  for (const s of TABS) $(`#tab-${s}`).hidden = s !== t;
   history.replaceState(null, "", `#${t}${t === "agenda" && date ? "/" + date : ""}`);
   if (t === "agenda") loadDay(true);
   if (t === "history") loadHistory();
   if (t === "hosts") loadHosts();
   if (t === "porters") loadPorters();
+  if (t === "rota") loadRota();
 }
 function goDate(d) {
   date = d;
@@ -515,7 +718,7 @@ document.addEventListener("click", async (e) => {
   const step = e.target.closest("[data-day-step]");
   if (step) return goDate(shiftDay(date, Number(step.dataset.dayStep)));
   const go = e.target.closest("[data-goto]");
-  if (go) { date = go.dataset.goto; return showTab("agenda"); }
+  if (go) { closeSheet(); date = go.dataset.goto; return showTab("agenda"); }
   const el = e.target.closest("[data-act]");
   if (!el) return;
   const id = el.dataset.job;
@@ -525,6 +728,17 @@ document.addEventListener("click", async (e) => {
     case "delete": return deleteJob(id);
     case "upload": return showUpload();
     case "auto": return showAuto();
+    case "who": return toggleWho(el.dataset.name, el.dataset.in === "1");
+    case "move": return moveJobs(JSON.parse(el.dataset.names || "null"));
+    case "site": siteFilter = el.dataset.site; store.set("siteFilter", siteFilter); return renderAgenda();
+    case "week": return loadRota(shiftDay(rotaWeek || localToday(), Number(el.dataset.step)));
+    case "this-week": return loadRota(localToday());
+    case "rota-up": return showRotaUpload();
+    case "rota-shot": return showShots(rota?.upload, "Rota");
+    case "away-del":
+      if (!await ask({ title: "Cancel this holiday?", name: el.dataset.what, ok: "Cancel it", danger: true })) return;
+      try { await api(`api/admin/away/${el.dataset.id}`, { method: "DELETE" }); loadRota(rotaWeek); } catch (err) { toast(err.message); }
+      return;
     case "add-day-hosts": return addDayHosts();
     case "add-new-hosts": return addCheckedHosts(el.closest(".unlisted"));
     case "host-del":
@@ -547,7 +761,7 @@ $("#todayBtn").addEventListener("click", () => goDate(day?.today || localToday()
 $("#uploadBtn").addEventListener("click", showUpload);
 $("#addBtn").addEventListener("click", () => showEdit(null));
 $("#autoBtn").addEventListener("click", showAuto);
-$("#shotBtn").addEventListener("click", showShots);
+$("#shotBtn").addEventListener("click", () => showShots());
 $("#hostSearch").addEventListener("input", renderHosts);
 $("#hostForm").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -559,7 +773,33 @@ $("#porterForm").addEventListener("submit", async (e) => {
   const name = e.target.elements.name.value.trim();
   try { await api("api/admin/porters", { method: "POST", body: { name } }); e.target.reset(); toast(`Added ${name}`); loadPorters(); } catch (err) { toast(err.message); }
 });
-$("#logout").addEventListener("click", () => { store.del("adminPin"); adminPin = ""; showLogin(); });
+$("#logout").addEventListener("click", () => { store.del("adminPin"); store.del("adminUser"); adminPin = ""; adminUser = ""; showLogin(); });
+document.addEventListener("change", async (e) => {
+  const el = e.target;
+  try {
+    if (el.matches("[data-rota]")) {
+      await api("api/admin/rota", { method: "PUT", body: { date: el.dataset.date, name: el.dataset.name, code: el.value } });
+      toast(`${el.dataset.name}: ${el.value || "not on the rota"} on ${fmtDay(el.dataset.date, { weekday: "short", day: "numeric", month: "short" })}`);
+      loadRota(rotaWeek);
+    } else if (el.matches("[data-porter-site]")) {
+      await api(`api/admin/porters/${el.dataset.porterSite}`, { method: "PUT", body: { site: el.value } });
+      toast("Saved");
+    } else if (el.matches("[data-porter-tasks]")) {
+      await api(`api/admin/porters/${el.dataset.porterTasks}`, { method: "PUT", body: { tasks: el.checked } });
+      toast(el.checked ? "Gets tasks again" : "Won't be given tasks");
+    }
+  } catch (err) { toast(err.message); }
+});
+$("#awayForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target.elements;
+  try {
+    await api("api/admin/away", { method: "POST", body: { name: f.who.value, from: f.from.value, to: f.to.value || f.from.value } });
+    toast(`Holiday booked for ${f.who.value}`);
+    e.target.reset();
+    loadRota(rotaWeek);
+  } catch (err) { toast(err.message); }
+});
 
 // live updates: ticks from the porters' phones show up within a few seconds
 setInterval(() => {
@@ -575,18 +815,23 @@ function showLogin(msg) {
   $("#login").hidden = false;
   $("#loginErr").textContent = msg || "";
   $("#pin").value = "";
-  $("#pin").focus();
+  $("#user").value = adminUser || "";
+  (adminUser ? $("#pin") : $("#user")).focus();
 }
 $("#loginForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const p = $("#pin").value.trim();
+  const u = $("#user").value.trim();
+  let data = {};
   try {
-    const res = await fetch("api/admin/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pin: p }) });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) { $("#loginErr").textContent = data.error || "That PIN isn't right."; return; }
+    const res = await fetch("api/admin/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ user: u, pin: p }) });
+    data = await res.json().catch(() => ({}));
+    if (!res.ok) { $("#loginErr").textContent = data.error || "That name and password don't match."; return; }
   } catch { $("#loginErr").textContent = "Can't reach the server."; return; }
   adminPin = p;
+  adminUser = data.name || u;
   store.set("adminPin", p);
+  store.set("adminUser", adminUser);
   start();
 });
 
@@ -595,7 +840,8 @@ function start() {
   $("#app").hidden = false;
   const [t, d] = location.hash.slice(1).split("/");
   date = /^\d{4}-\d{2}-\d{2}$/.test(d || "") ? d : localToday();
-  showTab(["agenda", "history", "hosts", "porters"].includes(t) ? t : "agenda");
+  $("#me").textContent = adminUser;
+  showTab(TABS.includes(t) ? t : "agenda");
 }
 
 if (adminPin) start(); else showLogin();

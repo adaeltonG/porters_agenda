@@ -14,14 +14,18 @@ A phone-friendly version of the daily porters agenda. The admin uploads the scre
 - On iPhone: Safari → Share → *Add to Home Screen*, then open it from the icon and pick the name once more.
 - They log in with `HOST_PIN` if it's set, otherwise with the team PIN. The host PIN only opens this read-only view.
 
-**Admin** (dashboard, `https://zetahub.co.uk/porters/admin.html`, own PIN)
-- Upload the agenda (screenshot or .xlsx/.csv). Porter names in the sheet are read; jobs without porters are **assigned automatically** (can be switched off in the upload box), and anything can be changed from the dropdown in the table (several people, or **Everyone**).
-- **Auto-assign**: tick who's working that day, then fill the jobs without porters, or re-shuffle the automatic picks nobody has started. The rules are in [src/autoassign.js](src/autoassign.js): random but fair (same number of tasks each), nobody in two rooms within 15 minutes, Davina does tea/coffee and breakfasts before 10:30 (never lunch, never Ohana floor setups), Tom gets as few tea/coffee and breakfasts as possible and never a room with breakfast and lunch. "Tasks each" above the table shows the share.
+**Admin** (dashboard, `https://zetahub.co.uk/porters/admin.html`, name + password)
+- Upload the agenda (screenshot or .xlsx/.csv) and say which building it's for: **The Tower** or **DSQ**. Each building's agenda is separate (uploading DSQ's never replaces the Tower's). Porter names in the sheet are read; jobs without porters are **assigned automatically** (can be switched off in the upload box), and anything can be changed from the dropdown in the table (several people, or **Everyone**). The upload box also lets you tap anyone who's off that day.
+- **Who's in** (above the table): everyone working that day by building, with their shift and task count, then who's off and why (PTO, SIC, Holiday…). Click a name to mark someone off for the day (sick) or back in. If they had jobs, the app offers to move them: rooms they shared go to the other person on it, the rest are given out again automatically. Ticked tasks stay as they are.
+- **Auto-assign**: fill the jobs without porters, or re-shuffle the automatic picks nobody has started. The rules are in [src/autoassign.js](src/autoassign.js): Tower jobs go to the people at the Tower that day, DSQ jobs to the DSQ people; nobody gets a task outside their shift (AM 06:30–15:30, PM 09:00–18:00; a room that doesn't fit one shift is split); random but fair (same number of tasks each); nobody in two rooms within 15 minutes; Davina does tea/coffee and breakfasts before 10:30 in whichever building she's in (never lunch, never Ohana floor setups); Tom gets as few tea/coffee and breakfasts as possible and never a room with breakfast and lunch.
+- **Rota**: upload the weekly rota (screenshot or spreadsheet: names down the side, dates along the top). AM / PM = shift, "DSQ" = at DSQ, PTO / SIC / Sick / Off / blank / blacked out = no tasks. Names are matched by first name ("Jeet Chand Mehay" → Jeet); anyone new is added as a porter at the building they mostly work in. Every day can be changed in the grid. Below it, **Holidays booked**: time off entered ahead, so those days start as off.
+- A job's porters cell warns when someone on it is off, in the other building, or outside their shift.
 - Live table: a task turns green when a porter ticks it, a row turns green when the job is finished, no refresh needed
 - Add, edit, delete and tick any job
 - **History**: every past day, with who ticked what and when
 - **Hosts**: a permanent list of host names for the Host dropdown. New names found in an upload are offered for adding with one click.
-- **Porters**: add or remove team members, see who has notifications on
+- **Porters**: add or remove team members, set their usual building (for days without a rota) and whether they get tasks at all (Carlos on Level 37 doesn't), see who has notifications on
+- Several admins: `ADMIN_PIN` is `ADMIN_NAME`'s password; more people go in `ADMIN_ACCOUNTS` (`Name:password,Name2:password2`). Everyone logs in with their name, and uploads/ticks show who did them.
 - If the admin has logged into the dashboard on a phone, the team app on that phone can edit too.
 
 ## Data
@@ -59,8 +63,10 @@ cd /opt/porters-agenda && git pull && docker compose up -d --build porters
 ## Daily use
 
 1. The boss posts the screenshot in the group chat.
-2. The admin opens the dashboard and taps **Upload agenda**.
-3. A few seconds later the jobs appear. Assign porters where the sheet has none; give the rest a quick check against the screenshot.
+2. The admin opens the dashboard and taps **Upload agenda** (Tower or DSQ).
+3. A few seconds later the jobs appear, with porters shared out among whoever the rota says is working. Give them a quick check against the screenshot.
+4. Once a week: **Rota → Upload rota** with the new week's rota.
+5. Someone calls in sick: click their name in **Who's in** and let the app move their jobs.
 
 Even better, if you have the sheet: in Google Sheets choose *File → Download → Microsoft Excel (.xlsx)* (or *.csv*) and upload that file. It's read exactly, and if the file has several days the app takes today's (or the next day with jobs).
 

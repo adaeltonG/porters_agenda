@@ -34,7 +34,30 @@ export function openDb(dataDir) {
     CREATE TABLE IF NOT EXISTS push_subs (
       endpoint TEXT PRIMARY KEY, porter TEXT NOT NULL, sub TEXT NOT NULL, created_at TEXT NOT NULL
     );
+    -- the weekly rota: one code per person per day ("AM", "PM DSQ", "PTO", "SIC", "OFF")
+    CREATE TABLE IF NOT EXISTS rota (
+      date TEXT NOT NULL, porter TEXT NOT NULL COLLATE NOCASE, code TEXT NOT NULL,
+      PRIMARY KEY (date, porter)
+    );
+    -- the admin marking someone off (1) or back in (0) for one day
+    CREATE TABLE IF NOT EXISTS day_off (
+      date TEXT NOT NULL, porter TEXT NOT NULL COLLATE NOCASE, off INTEGER NOT NULL,
+      PRIMARY KEY (date, porter)
+    );
+    -- booked time off (holidays)
+    CREATE TABLE IF NOT EXISTS away (
+      id INTEGER PRIMARY KEY, porter TEXT NOT NULL COLLATE NOCASE, date_from TEXT NOT NULL, date_to TEXT NOT NULL, note TEXT NOT NULL DEFAULT ''
+    );
   `);
+  // columns added after the first release
+  const addColumn = (table, sql) => {
+    const name = sql.split(" ")[0];
+    if (!db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${sql}`);
+  };
+  addColumn("porters", "site TEXT NOT NULL DEFAULT 'tower'");   // home building: tower / dsq
+  addColumn("porters", "tasks INTEGER NOT NULL DEFAULT 1");     // 0 = never given tasks automatically
+  addColumn("porters", "full_name TEXT NOT NULL DEFAULT ''");   // as written on the rota
+  addColumn("uploads", "site TEXT NOT NULL DEFAULT 'tower'");   // tower / dsq / rota
   return new Store(db);
 }
 
@@ -61,11 +84,13 @@ class Store {
 
   getMeta(key) { return this.db.prepare("SELECT value FROM meta WHERE key = ?").get(key)?.value ?? null; }
   setMeta(key, value) { this.db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, value); }
+  metaLike(prefix) { return this.db.prepare("SELECT key, value FROM meta WHERE key LIKE ?").all(prefix + "%"); }
+  deleteMeta(key) { this.db.prepare("DELETE FROM meta WHERE key = ?").run(key); }
 
   // ---------- porters ----------
   porters({ all = false } = {}) {
-    return this.db.prepare(`SELECT id, name, active FROM porters ${all ? "" : "WHERE active = 1"} ORDER BY sort, id`).all()
-      .map((r) => ({ ...r, active: Boolean(r.active) }));
+    return this.db.prepare(`SELECT id, name, active, site, tasks, full_name FROM porters ${all ? "" : "WHERE active = 1"} ORDER BY sort, id`).all()
+      .map(({ full_name, ...r }) => ({ ...r, active: Boolean(r.active), tasks: Boolean(r.tasks), fullName: full_name || "" }));
   }
   porterNames() { return this.porters().map((p) => p.name); }
   addPorter(name) {
@@ -75,6 +100,29 @@ class Store {
     this.db.prepare("INSERT INTO porters (name, sort) VALUES (?, ?)").run(name, sort);
   }
   setPorterActive(id, active) { this.db.prepare("UPDATE porters SET active = ? WHERE id = ?").run(active ? 1 : 0, id); }
+  /** fields: { site, tasks, fullName } (any of them) */
+  updatePorter(id, fields) {
+    if (fields.site != null) this.db.prepare("UPDATE porters SET site = ? WHERE id = ?").run(fields.site, id);
+    if (fields.tasks != null) this.db.prepare("UPDATE porters SET tasks = ? WHERE id = ?").run(fields.tasks ? 1 : 0, id);
+    if (fields.fullName != null) this.db.prepare("UPDATE porters SET full_name = ? WHERE id = ?").run(fields.fullName, id);
+  }
+  porterByName(name) { return this.porters({ all: true }).find((p) => p.name.toLowerCase() === String(name).toLowerCase()) || null; }
+
+  // ---------- rota, days off, holidays ----------
+  rotaBetween(from, to) { return this.db.prepare("SELECT date, porter, code FROM rota WHERE date >= ? AND date <= ? ORDER BY date").all(from, to); }
+  setRota(date, porter, code) {
+    if (!code) return this.db.prepare("DELETE FROM rota WHERE date = ? AND porter = ?").run(date, porter);
+    this.db.prepare("INSERT INTO rota (date, porter, code) VALUES (?, ?, ?) ON CONFLICT(date, porter) DO UPDATE SET code = excluded.code").run(date, porter, code);
+  }
+  dayOffs(from, to = from) { return this.db.prepare("SELECT date, porter, off FROM day_off WHERE date >= ? AND date <= ?").all(from, to).map((r) => ({ ...r, off: Boolean(r.off) })); }
+  setDayOff(date, porter, off) {
+    if (off == null) return this.db.prepare("DELETE FROM day_off WHERE date = ? AND porter = ?").run(date, porter);
+    this.db.prepare("INSERT INTO day_off (date, porter, off) VALUES (?, ?, ?) ON CONFLICT(date, porter) DO UPDATE SET off = excluded.off").run(date, porter, off ? 1 : 0);
+  }
+  awayList(from = "0000-00-00") { return this.db.prepare("SELECT id, porter, date_from AS start, date_to AS end, note FROM away WHERE date_to >= ? ORDER BY date_from, porter").all(from); }
+  awayOverlapping(from, to) { return this.db.prepare("SELECT id, porter, date_from AS start, date_to AS end, note FROM away WHERE date_from <= ? AND date_to >= ?").all(to, from); }
+  addAway(porter, start, end, note = "") { this.db.prepare("INSERT INTO away (porter, date_from, date_to, note) VALUES (?, ?, ?, ?)").run(porter, start, end, note); }
+  deleteAway(id) { return this.db.prepare("DELETE FROM away WHERE id = ?").run(id).changes > 0; }
   renamePorter(id, name) { this.db.prepare("UPDATE porters SET name = ? WHERE id = ?").run(name, id); }
 
   // ---------- hosts ----------
@@ -133,14 +181,14 @@ class Store {
   clearTick(jobId, task) { this.db.prepare("DELETE FROM ticks WHERE job_id = ? AND task = ?").run(jobId, task); }
 
   // ---------- uploads ----------
-  addUpload({ by, dates, images, warnings }) {
-    this.db.prepare("INSERT INTO uploads (at, by, dates, images, warnings) VALUES (?, ?, ?, ?, ?)")
-      .run(now(), by, JSON.stringify(dates), JSON.stringify(images), JSON.stringify(warnings));
+  addUpload({ by, dates, images, warnings, site = "tower" }) {
+    this.db.prepare("INSERT INTO uploads (at, by, dates, images, warnings, site) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(now(), by, JSON.stringify(dates), JSON.stringify(images), JSON.stringify(warnings), site);
   }
-  /** The most recent upload that covered this day. */
-  uploadFor(date) {
-    const r = this.db.prepare("SELECT at, by, images, warnings FROM uploads WHERE EXISTS (SELECT 1 FROM json_each(uploads.dates) WHERE value = ?) ORDER BY id DESC LIMIT 1").get(date);
-    return r ? { at: r.at, by: r.by, images: JSON.parse(r.images), warnings: JSON.parse(r.warnings) } : null;
+  /** The most recent upload that covered this day (of one building's agenda, or the rota). */
+  uploadFor(date, site = "tower") {
+    const r = this.db.prepare("SELECT at, by, images, warnings, site FROM uploads WHERE site = ? AND EXISTS (SELECT 1 FROM json_each(uploads.dates) WHERE value = ?) ORDER BY id DESC LIMIT 1").get(site, date);
+    return r ? { at: r.at, by: r.by, images: JSON.parse(r.images), warnings: JSON.parse(r.warnings), site: r.site } : null;
   }
   imageKnown(name) {
     return Boolean(this.db.prepare("SELECT 1 FROM uploads, json_each(uploads.images) WHERE json_each.value = ? LIMIT 1").get(name));

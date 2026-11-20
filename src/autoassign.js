@@ -12,6 +12,9 @@
 //    In a room that also has lunch etc., she does the morning part and a porter the rest.
 //  - Tom gets as few tea/coffee and breakfasts as possible, and never a room that has both
 //    breakfast and lunch.
+//  - Shifts (from the rota): nobody gets a task outside their hours (AM 06:30-15:30,
+//    PM 09:00-18:00). A room whose tasks don't fit one person's shift is split between two.
+//  - Each building is done on its own: the caller passes the jobs and porters of one site.
 
 export const RULES = {
   morningHelper: { name: "Davina", finishes: "10:30", noSetupAt: /ohana/i },
@@ -61,12 +64,14 @@ export function taskLoads(jobs) {
 }
 
 /** The rules in plain words, for the dashboard. */
-export function describeRules(rules = RULES) {
+export function describeRules(rules = RULES, shifts = null) {
   const h = rules.morningHelper;
   return [
+    "Tower jobs go to the people working at the Tower that day, DSQ jobs to the people at DSQ (from the rota). Anyone off – rota, booked holiday or marked off on the dashboard – gets nothing.",
+    shifts && `Nobody gets a task outside their shift (${Object.entries(shifts).map(([k, v]) => `${k} ${v.from}–${v.to}`).join(", ")}). If a room's tasks don't fit one person's shift, it's split between two.`,
     "Shared out at random, but fairly: everyone ends up with about the same number of tasks for the day (jobs the sheet already gave out count too).",
     `Nobody gets two different rooms within ${rules.clashMinutes} minutes of each other, if it can be avoided.`,
-    h && `${h.name} does the tea/coffee/water and breakfasts before ${h.finishes} (and that room's setup and clear-up when they're before ${h.finishes}). Never lunch, never a furniture setup on the Ohana floor. If two of hers are at the same time, a porter takes the other one.`,
+    h && `${h.name} does the tea/coffee/water and breakfasts before ${h.finishes} (and that room's setup and clear-up when they're before ${h.finishes}), in whichever building she's working. Never lunch, never a furniture setup on the Ohana floor. If two of hers are at the same time, a porter takes the other one.`,
     rules.fewTeaBreakfast.length && `${rules.fewTeaBreakfast.join(", ")} gets as few tea/coffee and breakfasts as possible.`,
     rules.noBreakfastLunchRoom.length && `${rules.noBreakfastLunchRoom.join(", ")} never gets a room that has both breakfast and lunch.`,
   ].filter(Boolean);
@@ -85,7 +90,7 @@ function shuffle(arr, rand) {
  * Works out porters for the target jobs.
  * jobs: every job on the day (the others count towards how busy people are)
  * targetIds: ids of the jobs to fill
- * roster: names of who's working
+ * roster: who's working - names, or { name, from, to } with their shift ("06:30", "15:30")
  * Returns { porters: Map(jobId -> [{ name, roles }]), loads }.
  */
 export function autoAssign(jobs, targetIds, roster, { rules = RULES, rand = Math.random } = {}) {
@@ -100,7 +105,12 @@ export function autoAssign(jobs, targetIds, roster, { rules = RULES, rand = Math
 }
 
 function oneTry(jobs, targets, roster, rules, rand) {
-  const people = new Map(roster.map((n) => [lc(n), { name: n, load: 0, teaBreakfast: 0, clashes: 0, busy: [] }]));
+  const people = new Map(roster.map((r) => {
+    const e = typeof r === "string" ? { name: r } : r;
+    return [lc(e.name), { name: e.name, from: toMin(e.from), to: toMin(e.to), load: 0, teaBreakfast: 0, clashes: 0, busy: [] }];
+  }));
+  // is the task inside this person's shift? (an untimed task fits anyone)
+  const fits = (p, t) => t.min == null || ((p.from == null || t.min >= p.from) && (p.to == null || t.min < p.to));
   const few = new Set(rules.fewTeaBreakfast.map(lc));
   const noBL = new Set(rules.noBreakfastLunchRoom.map(lc));
   const gap = rules.clashMinutes;
@@ -148,7 +158,7 @@ function oneTry(jobs, targets, roster, rules, rand) {
   const helper = h && people.get(lc(h.name));
   if (helper) {
     const until = toMin(h.finishes);
-    const morning = (job) => left.get(job.id).filter((t) => TEA_BREAKFAST.has(t.key) && (t.min != null ? t.min < until : t.key === "breakfast"));
+    const morning = (job) => left.get(job.id).filter((t) => TEA_BREAKFAST.has(t.key) && fits(helper, t) && (t.min != null ? t.min < until : t.key === "breakfast"));
     const first = (job) => Math.min(...morning(job).map((t) => t.min ?? 9999));
     const order = shuffle(targets.filter((j) => morning(j).length), rand).sort((a, b) => first(a) - first(b));
     for (const job of order) {
@@ -158,7 +168,7 @@ function oneTry(jobs, targets, roster, rules, rand) {
     // ...then the setup / clear up of her rooms, when they're before she finishes
     for (const job of order) {
       if (!picks.get(job.id).length) continue;
-      const extra = left.get(job.id).filter((t) => t.min != null && t.min < until && free(helper, t.min, job.id)
+      const extra = left.get(job.id).filter((t) => t.min != null && t.min < until && fits(helper, t) && free(helper, t.min, job.id)
         && (t.key === "clearUp" || (t.key === "setup" && !(h.noSetupAt && h.noSetupAt.test(job.location || "")))));
       if (extra.length) take(job, helper, extra);
     }
@@ -168,18 +178,28 @@ function oneTry(jobs, targets, roster, rules, rand) {
   const regulars = [...people.values()].filter((p) => p !== helper);
   const units = shuffle(targets.filter((j) => left.get(j.id).length), rand)
     .sort((a, b) => left.get(b.id).length - left.get(a.id).length);
+  let outside = 0; // tasks nobody on shift could take
   for (const job of units) {
     const tasks = left.get(job.id);
-    const tb = tasks.filter((t) => TEA_BREAKFAST.has(t.key)).length;
     const breakfastAndLunch = Boolean(job.slots?.breakfast?.needed && job.slots?.lunch?.needed);
-    let pick = null, pickCost = Infinity;
-    for (const p of regulars) {
-      if (breakfastAndLunch && noBL.has(lc(p.name))) continue;
-      const clashes = tasks.filter((t) => !free(p, t.min, job.id)).length;
-      const cost = p.load + clashes * 50 + (few.has(lc(p.name)) ? tb * 4 : 0) + rand();
-      if (cost < pickCost) { pick = p; pickCost = cost; }
+    const allowed = regulars.filter((p) => !(breakfastAndLunch && noBL.has(lc(p.name))));
+    const cost = (p, ts) => p.load + ts.filter((t) => !free(p, t.min, job.id)).length * 50
+      + (few.has(lc(p.name)) ? ts.filter((t) => TEA_BREAKFAST.has(t.key)).length * 4 : 0) + rand();
+    const cheapest = (list, ts) => {
+      let pick = null, best = Infinity;
+      for (const p of list) { const c = cost(p, ts); if (c < best) { pick = p; best = c; } }
+      return pick;
+    };
+    // one person for the whole room, if someone's shift covers it
+    const whole = cheapest(allowed.filter((p) => tasks.every((t) => fits(p, t))), tasks);
+    if (whole) { take(job, whole, tasks); continue; }
+    // otherwise split it: each task to someone on shift, keeping it to as few people as possible
+    for (const t of [...tasks].sort((a, b) => (a.min ?? -1) - (b.min ?? -1))) {
+      const on = allowed.filter((p) => fits(p, t));
+      const already = on.filter((p) => picks.get(job.id).some((g) => g.name === p.name));
+      const p = cheapest(already.length ? already : on, [t]);
+      if (p) take(job, p, [t]); else outside++;
     }
-    if (pick) take(job, pick, tasks);
   }
 
   // score: clashes are worst, then Tom's tea/breakfasts, then how uneven the porters' loads are
@@ -189,7 +209,7 @@ function oneTry(jobs, targets, roster, rules, rand) {
   const variance = loads.reduce((a, b) => a + (b - mean) ** 2, 0);
   const clashes = [...people.values()].reduce((a, p) => a + p.clashes, 0);
   const tomTB = [...people.values()].filter((p) => few.has(lc(p.name))).reduce((a, p) => a + p.teaBreakfast, 0);
-  const score = clashes * 10000 + tomTB * 1000 + spread * 50 + variance;
+  const score = outside * 100000 + clashes * 10000 + tomTB * 1000 + spread * 50 + variance;
 
   const porters = new Map();
   for (const job of targets) {
@@ -204,4 +224,4 @@ function oneTry(jobs, targets, roster, rules, rand) {
   return { score, porters, loads: out };
 }
 
-export { unassigned };
+export { unassigned, tasksOf, heldTasks };
