@@ -10,17 +10,26 @@
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="stylesheet" href="app.css?v=3">
+  <link rel="stylesheet" href="app.css?v=4">
 </head>
 <body>
   <!-- Login -->
   <section id="login" class="login" hidden>
     <div class="logo"><svg class="i"><use href="#i-trolley"/></svg></div>
     <h1>Porters Agenda</h1>
-    <p>Who are you?</p>
+    <div class="seg" id="roleTabs" role="tablist" aria-label="I am a">
+      <button type="button" role="tab" data-role="porter" aria-selected="true">Porter</button>
+      <button type="button" role="tab" data-role="host" aria-selected="false">Host</button>
+    </div>
+    <p id="loginLead">Who are you?</p>
     <div class="names" id="loginNames"></div>
+    <div class="host-pick" id="hostPick" hidden>
+      <input class="in" id="hostSearch" type="search" placeholder="Search your name" autocomplete="off" aria-label="Search your name">
+      <div class="host-names" id="hostNames"></div>
+      <button class="btn block" type="button" id="hostAll">Show every event instead</button>
+    </div>
     <form id="loginForm">
-      <label class="f" id="pinWrap">Team PIN
+      <label class="f" id="pinWrap"><span id="pinLabel">Team PIN</span>
         <input class="in" id="pin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="••••">
       </label>
       <div class="err" id="loginErr"></div>
@@ -87,6 +96,6 @@
     <symbol id="i-trolley" viewBox="0 0 24 24"><path d="M5 3v14h14M9 13V7h9v6H9z"/><circle cx="7" cy="20" r="1.5"/><circle cx="17" cy="20" r="1.5"/></symbol>
   </svg>
 
-  <script src="app.js?v=6" type="module"></script>
+  <script src="app.js?v=7" type="module"></script>
 </body>
 </html>

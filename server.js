@@ -9,6 +9,7 @@ import { extractRows, isSheetFile, today } from "./src/extract.js";
 import { levenshtein } from "./src/table.js";
 import { openDb, importOldState } from "./src/db.js";
 import { initPush, notify, pushPublicKey } from "./src/push.js";
+import { autoAssign, taskLoads, describeRules } from "./src/autoassign.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -24,6 +25,8 @@ const DATA_DIR = process.env.DATA_DIR || path.join(here, "data");
 const IMG_DIR = path.join(DATA_DIR, "images");
 const TEAM_PIN = (process.env.TEAM_PIN || "").trim();
 const ADMIN_PIN = (process.env.ADMIN_PIN || "").trim();
+// PIN for the hosts' read-only view. Without one, hosts use the team PIN.
+const HOST_PIN = (process.env.HOST_PIN || "").trim();
 const ADMIN_NAME = (process.env.ADMIN_NAME || "").trim().slice(0, 40) || "Admin"; // shown on ticks/uploads from the dashboard
 
 const SLOT_KEYS = ["setup", "teaCoffee", "breakfast", "lunch", "afternoon", "clearUp", "reset"];
@@ -213,6 +216,36 @@ function notifyAssignments(changes, by) {
   }
 }
 
+// ---------- automatic porters ----------
+
+const unassignedJob = (j) => !j.everyone && !j.porters?.length;
+
+/** Who's working on a day: what the admin last ticked in "Auto-assign", else every active porter. */
+function rosterFor(date) {
+  const active = store.porterNames();
+  let saved = null;
+  try { saved = JSON.parse(store.getMeta(`roster:${date}`) || "null"); } catch { /* ignore */ }
+  if (!Array.isArray(saved)) return active;
+  const keep = new Set(saved.map((n) => String(n).toLowerCase()));
+  return active.filter((n) => keep.has(n.toLowerCase()));
+}
+
+/** Gives porters to the target jobs (changes the job objects). Returns how many got someone. */
+function fillPorters(dayJobs, targetIds, roster) {
+  if (!targetIds.size || !roster.length) return 0;
+  const { porters } = autoAssign(dayJobs, [...targetIds], roster);
+  let n = 0;
+  for (const job of dayJobs) {
+    const picked = targetIds.has(job.id) && porters.get(job.id);
+    if (!picked?.length) continue;
+    job.porters = picked;
+    job.everyone = false;
+    job.porterSource = "auto"; // like the sheet's: porters in a re-uploaded sheet win, and so do the admin's picks
+    n++;
+  }
+  return n;
+}
+
 // ---------- views ----------
 
 /** What a porter's phone shows: today (or the last day with jobs) plus anything ahead. */
@@ -236,6 +269,9 @@ function adminDay(date) {
     ticks: store.ticksFor(jobs.map((j) => j.id)),
     upload: store.uploadFor(date),
     porters: store.porterNames(),
+    roster: rosterFor(date),
+    loads: taskLoads(jobs),
+    autoRules: describeRules(),
     hosts: store.hosts().map((h) => h.name),
     newHosts: [...new Set(jobs.flatMap((j) => j.hosts || []).filter((h) => !hostNames.has(h.toLowerCase())))],
   };
@@ -285,7 +321,35 @@ function adminOnly(req, res, next) {
 const changed = () => store.bump();
 
 app.get("/api/config", (_req, res) => {
-  res.json({ porters: store.porterNames(), pinRequired: Boolean(TEAM_PIN), pushKey: pushPublicKey() });
+  res.json({ porters: store.porterNames(), pinRequired: Boolean(TEAM_PIN), hostPinRequired: Boolean(HOST_PIN || TEAM_PIN), pushKey: pushPublicKey() });
+});
+
+// ---------- hosts (read-only: which of their events have been delivered / cleared) ----------
+
+/** The host PIN, or the team PIN (porters can look too). Open when neither is set. */
+function hostPinOk(p) {
+  if (!HOST_PIN && !TEAM_PIN) return true;
+  return Boolean((HOST_PIN && sameSecret(String(p || "").trim().toUpperCase(), HOST_PIN.toUpperCase())) || (TEAM_PIN && sameSecret(p, TEAM_PIN)) || adminPinOk(p));
+}
+function hostAuth(req, res, next) {
+  if (!hostPinOk(req.get("x-team-pin")) && !adminPinOk(req.get("x-admin-pin"))) return res.status(401).json({ error: "Wrong PIN" });
+  next();
+}
+const hostNames = () => store.hosts().map((h) => h.name);
+
+app.post("/api/host/login", (req, res) => {
+  if (!hostPinOk(req.body?.pin)) return res.status(401).json({ error: "That PIN isn't right." });
+  res.json({ ok: true, hosts: hostNames() });
+});
+
+app.get("/api/host/names", hostAuth, (_req, res) => res.json({ hosts: hostNames() }));
+
+app.get("/api/host/state", hostAuth, (req, res) => {
+  res.set("Cache-Control", "no-store");
+  if (Number(req.query.since) === store.version) return res.json({ unchanged: true, version: store.version });
+  const { uploads, ...rest } = teamState({ isAdmin: false });
+  // no screenshots for hosts, just when the agenda went up
+  res.json({ ...rest, host: true, uploads: Object.fromEntries(Object.entries(uploads).map(([d, u]) => [d, u && { at: u.at, by: u.by }])) });
 });
 
 app.post("/api/login", (req, res) => {
@@ -327,6 +391,7 @@ app.post("/api/upload", auth, adminRequired, upload.array("images", 6), async (r
   if (!files.length) return res.status(400).json({ error: "Please choose a screenshot or the spreadsheet file (.xlsx / .csv)." });
   if (extracting) return res.status(409).json({ error: "Someone else is uploading right now. Try again in a minute." });
   const mode = req.body.mode === "append" ? "append" : "replace";
+  const auto = req.body.autoAssign !== "0";
 
   extracting = true;
   try {
@@ -346,6 +411,7 @@ app.post("/api/upload", auth, adminRequired, upload.array("images", 6), async (r
     }
 
     const changes = [];
+    let autoAssigned = 0;
     store.tx(() => {
       const freshIds = new Set(fresh.map((j) => j.id));
       if (mode === "replace") {
@@ -364,9 +430,17 @@ app.post("/api/upload", auth, adminRequired, upload.array("images", 6), async (r
           job.everyone = Boolean(before.everyone);
           job.porterSource = before.porterSource;
         }
-        store.saveJob(job);
         changes.push({ before, after: job });
       }
+      // whatever still has nobody is shared out among that day's porters
+      if (auto) {
+        for (const d of dates) {
+          const dayFresh = fresh.filter((j) => j.date === d);
+          const others = store.jobsOn(d).filter((j) => !freshIds.has(j.id));
+          autoAssigned += fillPorters([...dayFresh, ...others], new Set(dayFresh.filter(unassignedJob).map((j) => j.id)), rosterFor(d));
+        }
+      }
+      for (const job of fresh) store.saveJob(job);
       store.addUpload({ by: req.porter, dates, images: names, warnings: result.warnings || [] });
       changed();
     });
@@ -378,7 +452,8 @@ app.post("/api/upload", auth, adminRequired, upload.array("images", 6), async (r
       count: fresh.length,
       dates,
       warnings: result.warnings || [],
-      unassigned: fresh.filter((j) => !j.everyone && !j.porters.length).length,
+      autoAssigned,
+      unassigned: fresh.filter(unassignedJob).length,
       newHosts: [...new Set(fresh.flatMap((j) => j.hosts).filter((h) => !known.has(h.toLowerCase())))],
     });
   } catch (e) {
@@ -479,6 +554,39 @@ app.get("/api/admin/day", adminOnly, (req, res) => {
   const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date)) ? String(req.query.date) : today();
   if (Number(req.query.since) === store.version && req.query.known === date) return res.json({ unchanged: true, version: store.version });
   res.json(adminDay(date));
+});
+
+/** "Auto-assign" on the dashboard: who's working that day, then fill (or re-shuffle) the jobs. */
+app.post("/api/admin/autoassign", adminOnly, (req, res) => {
+  const date = String(req.body?.date || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: "Pick a day" });
+  const active = store.porterNames();
+  const picked = Array.isArray(req.body?.porters) ? new Set(req.body.porters.map((n) => str(n).toLowerCase())) : null;
+  const roster = picked ? active.filter((n) => picked.has(n.toLowerCase())) : rosterFor(date);
+  if (!roster.length) return res.status(400).json({ error: "Tick at least one porter" });
+  const redo = Boolean(req.body?.redo);
+
+  const jobs = store.jobsOn(date);
+  const ticks = store.ticksFor(jobs.map((j) => j.id));
+  // re-shuffling only touches automatic picks nobody has started on
+  const targets = new Set(jobs.filter((j) => unassignedJob(j) || (redo && j.porterSource === "auto" && !ticks[j.id])).map((j) => j.id));
+  const befores = new Map(jobs.map((j) => [j.id, structuredClone(j)]));
+  let assigned = 0;
+  store.tx(() => {
+    store.setMeta(`roster:${date}`, JSON.stringify(roster));
+    // a job being re-shuffled starts empty, so its old porter doesn't count as busy
+    for (const j of jobs) if (targets.has(j.id)) { j.porters = []; j.everyone = false; }
+    assigned = fillPorters(jobs, targets, roster);
+    for (const j of jobs) {
+      if (!targets.has(j.id)) continue;
+      const before = befores.get(j.id);
+      if (!j.porters.length) Object.assign(j, { porters: before.porters || [], everyone: Boolean(before.everyone) }); // nobody fitted: leave it
+      store.saveJob(j);
+    }
+    changed();
+  });
+  notifyAssignments(jobs.filter((j) => targets.has(j.id)).map((j) => ({ before: befores.get(j.id), after: j })), req.porter);
+  res.json({ ok: true, assigned, targets: targets.size, loads: taskLoads(jobs) });
 });
 
 app.get("/api/admin/history", adminOnly, (_req, res) => {

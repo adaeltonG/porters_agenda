@@ -116,3 +116,27 @@ dialog.sheet.wide { max-width: 760px; }
 .row-acts .btn.small { min-height: 32px; padding: 0 10px; font-size: 13px; border-radius: 8px; gap: 5px; }
 .row-acts .btn.small svg.i { width: 15px; height: 15px; }
 .a-table td.loc { min-width: 150px; }
+
+/* ---------- automatic porters ---------- */
+.a-loads { display: inline-flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+.a-loads > span b { font-size: 14px; }
+.raw.auto { display: flex; align-items: center; gap: 4px; color: var(--accent); font-weight: 650; }
+.raw.auto svg.i { width: 14px; height: 14px; }
+.raw.roles { display: flex; flex-direction: column; gap: 1px; color: var(--text); }
+.raw.roles b { font-weight: 700; }
+.who-list { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 10px; }
+.who-list label {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 14px 0 10px; border-radius: 999px;
+  background: var(--surface-2); border: 1px solid var(--line); font-weight: 650; cursor: pointer;
+}
+.who-list label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.who-list input { width: 18px; height: 18px; accent-color: var(--accent); }
+.choice:has(input:disabled) { opacity: .5; cursor: default; }
+.rules { margin-top: 14px; font-size: 14px; color: var(--muted); }
+.rules summary { cursor: pointer; font-weight: 650; color: var(--accent); }
+.rules ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 6px; }
+.load-list { list-style: none; margin: 14px 0 0; padding: 0; border: 1px solid var(--line); border-radius: 12px; }
+.load-list li { display: flex; align-items: baseline; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--line); }
+.load-list li:last-child { border-bottom: 0; }
+.load-list span { flex: 1; font-weight: 650; }
+.load-list small { color: var(--muted); }

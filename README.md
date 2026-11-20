@@ -8,8 +8,15 @@ A phone-friendly version of the daily porters agenda. The admin uploads the scre
 - Shows how far away each task is ("in 20 min") and which are overdue
 - Push notification when they're given a job (after turning notifications on once)
 
+**Hosts** (same link, *Host* tab on the login screen)
+- Read-only: hosts pick their name and see their events for the day, with each part marked *Delivered* / *Cleared* (time and porter) as soon as a porter ticks it. "All events" shows everything.
+- While the app is open the phone buzzes when one of their events is ticked off.
+- On iPhone: Safari → Share → *Add to Home Screen*, then open it from the icon and pick the name once more.
+- They log in with `HOST_PIN` if it's set, otherwise with the team PIN. The host PIN only opens this read-only view.
+
 **Admin** (dashboard, `https://zetahub.co.uk/porters/admin.html`, own PIN)
-- Upload the agenda (screenshot or .xlsx/.csv). Porter names in the sheet are read; jobs without porters are assigned from a dropdown in the table (several people, or **Everyone**).
+- Upload the agenda (screenshot or .xlsx/.csv). Porter names in the sheet are read; jobs without porters are **assigned automatically** (can be switched off in the upload box), and anything can be changed from the dropdown in the table (several people, or **Everyone**).
+- **Auto-assign**: tick who's working that day, then fill the jobs without porters, or re-shuffle the automatic picks nobody has started. The rules are in [src/autoassign.js](src/autoassign.js): random but fair (same number of tasks each), nobody in two rooms within 15 minutes, Davina does tea/coffee and breakfasts before 10:30 (never lunch, never Ohana floor setups), Tom gets as few tea/coffee and breakfasts as possible and never a room with breakfast and lunch. "Tasks each" above the table shows the share.
 - Live table: a task turns green when a porter ticks it, a row turns green when the job is finished, no refresh needed
 - Add, edit, delete and tick any job
 - **History**: every past day, with who ticked what and when

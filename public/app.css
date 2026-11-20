@@ -385,3 +385,17 @@ div.f { display: block; margin-top: 12px; font-size: 13px; font-weight: 650; col
 .pk-opt.all { border-bottom: 1px solid var(--line); border-radius: 8px 8px 0 0; }
 .pk-opt.new { color: var(--accent); }
 .pk-empty { padding: 12px; color: var(--muted); font-size: 14px; }
+
+/* ---------- login: Porter / Host switch, host name list ---------- */
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; margin: 14px 0 16px; border-radius: 14px; background: var(--line); }
+.seg button { height: 42px; border-radius: 11px; font-weight: 700; color: var(--muted); }
+.seg button[aria-selected="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+.host-pick .in { margin: 0 0 10px; }
+.host-names { display: flex; flex-direction: column; gap: 8px; max-height: 50dvh; overflow-y: auto; margin-bottom: 12px; }
+.host-names button {
+  min-height: 54px; border-radius: 14px; background: var(--surface); border: 1.5px solid var(--line); font-weight: 700; font-size: 16.5px;
+  display: flex; align-items: center; gap: 10px; padding: 0 14px; text-align: left; flex: none;
+}
+.host-names button:active { border-color: var(--accent); background: var(--accent-soft); }
+.host-names .av { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 13px; background: var(--hosp); flex: none; }
+.tby .status { color: var(--done); font-weight: 750; }

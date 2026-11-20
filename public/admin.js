@@ -125,10 +125,15 @@ function renderAgenda() {
     <span><b>${jobs.length}</b> jobs</span>
     <span><b>${done}/${total}</b> tasks done</span><span class="bar"><i style="width:${total ? (done / total) * 100 : 0}%"></i></span>
     ${open ? `<span style="color:var(--soon)"><b style="color:inherit">${open}</b> without porters</span>` : ""}
-    ${day.upload ? `<span>Uploaded by ${esc(day.upload.by)} at ${fmtClock(day.upload.at)}</span>` : ""}` : "";
+    ${day.upload ? `<span>Uploaded by ${esc(day.upload.by)} at ${fmtClock(day.upload.at)}</span>` : ""}
+    ${loadsHTML()}` : "";
 
   // notices
   let notices = "";
+  if (open && date >= day.today) {
+    notices += `<div class="notice"><span><b>${open} job${open > 1 ? "s have" : " has"} no porters.</b> They can be shared out fairly in one go.</span>
+      <button class="btn small" data-act="auto">${icon("shuffle")}Assign automatically</button></div>`;
+  }
   if (day.newHosts?.length) {
     notices += `<div class="notice"><span><b>${day.newHosts.length} host${day.newHosts.length > 1 ? "s" : ""} not on your list:</b> ${day.newHosts.map(esc).join(", ")}</span>
       <button class="btn small" data-act="add-day-hosts">Add to host list</button></div>`;
@@ -169,7 +174,7 @@ function renderAgenda() {
         return `<button class="tk${tk ? " on" : ""}${late ? " late" : ""}" data-act="tick" data-job="${esc(j.id)}" data-task="${t.key}" title="${esc(title)}">
           <span class="bx">${icon("check")}</span>${t.time ? `${esc(t.time)} ` : ""}${SHORT[t.key]}${tk ? ` <small>${esc(tk.by)} ${fmtClock(tk.at)}</small>` : ""}</button>`;
       }).join("")}</div></td>
-      <td class="porters-cell"><div class="pp" data-job="${esc(j.id)}"></div>${j.portersRaw ? `<div class="raw">Sheet: ${esc(j.portersRaw)}</div>` : ""}</td>
+      <td class="porters-cell"><div class="pp" data-job="${esc(j.id)}"></div>${whoDoesWhat(j)}${j.porterSource === "auto" ? `<div class="raw auto">${icon("shuffle")}Assigned automatically</div>` : ""}${j.portersRaw ? `<div class="raw">Sheet: ${esc(j.portersRaw)}</div>` : ""}</td>
       <td class="nt"><div>${esc(j.info || "")}</div></td>
     </tr>`;
   }).join("");
@@ -189,6 +194,53 @@ function renderAgenda() {
     });
     pickers.set(job.id, pk);
   }
+}
+
+const ROLE_SLOT = { TCW: "teaCoffee", TC: "teaCoffee", T: "teaCoffee", B: "breakfast", L: "lunch", A: "afternoon", PM: "afternoon", S: "setup", SU: "setup", C: "clearUp", CU: "clearUp", R: "reset" };
+
+/** "Davina: Tea/coffee · Pablo: Lunch, Clear up" when a job is split between people. */
+function whoDoesWhat(job) {
+  if (job.everyone || !job.porters?.some((p) => p.roles?.length)) return "";
+  return `<div class="raw roles">${job.porters.map((p) => `<span><b>${esc(p.name)}:</b> ${p.roles?.length ? esc(p.roles.map((r) => SHORT[ROLE_SLOT[r]] || r).join(", ")) : "the rest"}</span>`).join("")}</div>`;
+}
+
+/** Tasks each person has that day, so it's easy to see the share is fair. */
+function loadsHTML() {
+  const names = [...new Set([...day.porters.filter((n) => day.roster.includes(n) || day.loads[n]), ...Object.keys(day.loads)])];
+  if (!names.length || !Object.keys(day.loads).length) return "";
+  return `<span class="a-loads">Tasks each: ${names.map((n) => `<span title="${esc(n)}: ${day.loads[n]?.tasks || 0} tasks, ${day.loads[n]?.teaBreakfast || 0} tea/coffee or breakfast">${esc(n)} <b>${day.loads[n]?.tasks || 0}</b></span>`).join("")}</span>`;
+}
+
+// ---------- automatic porters ----------
+function showAuto() {
+  if (!day) return;
+  const autoJobs = day.jobs.filter((j) => j.porterSource === "auto" && !day.ticks[j.id]).length;
+  const open = day.jobs.filter(unassigned).length;
+  sheet.dataset.kind = "auto";
+  openSheet("Assign porters automatically", `<form id="autoForm">
+    <p class="a-sub" style="margin-top:12px">Who's working on <b>${esc(fmtDay(date, { weekday: "long", day: "numeric", month: "long" }))}</b>? Untick anyone who's off.</p>
+    <div class="who-list">${day.porters.map((n) => `<label><input type="checkbox" name="p" value="${esc(n)}"${day.roster.includes(n) ? " checked" : ""}>${esc(n)}</label>`).join("")}</div>
+    <label class="choice"><input type="radio" name="mode" value="fill" checked><span><b>Jobs without porters${open ? ` (${open})` : ""}</b><small>Porters from the sheet, or ones you picked, stay as they are.</small></span></label>
+    <label class="choice"><input type="radio" name="mode" value="redo"${autoJobs ? "" : " disabled"}><span><b>Shuffle the automatic picks again${autoJobs ? ` (${autoJobs})` : ""}</b><small>Also re-does jobs that were assigned automatically and haven't been ticked yet.</small></span></label>
+    <details class="rules"><summary>How it picks</summary><ul>${(day.autoRules || []).map((r) => `<li>${esc(r)}</li>`).join("")}</ul></details>
+    <button class="btn primary block" type="submit" style="margin-top:16px">${icon("shuffle")}Assign</button>
+  </form>`);
+  $("#autoForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const porters = fd.getAll("p");
+    if (!porters.length) return toast("Tick at least one porter");
+    try {
+      const r = await api("api/admin/autoassign", { method: "POST", body: { date, porters, redo: fd.get("mode") === "redo" } });
+      await loadDay(true);
+      const loads = Object.entries(r.loads).sort((a, b) => b[1].tasks - a[1].tasks);
+      $("#sheetBody").innerHTML = `<div class="working"><div class="done-tick" style="width:52px;height:52px;margin:0 auto 14px">${icon("check")}</div>
+        <b>${r.assigned ? `Assigned ${r.assigned} job${r.assigned > 1 ? "s" : ""}` : r.targets ? "Nobody could be fitted in" : "Nothing needed assigning"}</b>
+        <div style="color:var(--muted);margin-top:6px">${r.assigned ? "The porters get a notification. You can still change anyone in the table." : "Every job already has porters."}</div></div>
+        ${loads.length ? `<ul class="load-list">${loads.map(([n, l]) => `<li><span>${esc(n)}</span><b>${l.tasks} task${l.tasks === 1 ? "" : "s"}</b>${l.teaBreakfast ? `<small>${l.teaBreakfast} tea/coffee or breakfast</small>` : ""}</li>`).join("")}</ul>` : ""}
+        <button class="btn block" data-close style="margin-top:16px">Done</button>`;
+    } catch (err) { toast(err.message); }
+  });
 }
 
 async function savePorters(id, v) {
@@ -329,6 +381,7 @@ function showUpload() {
     <div class="thumbs" id="thumbs"></div>
     <label class="choice"><input type="radio" name="mode" value="replace" checked><span><b>Replace that day's agenda</b><small>For a new day or an updated sheet. Ticks and porters you assigned are kept for jobs that haven't changed; jobs added by hand stay.</small></span></label>
     <label class="choice"><input type="radio" name="mode" value="append"><span><b>Add more rows</b><small>When the rest of the agenda is in another screenshot.</small></span></label>
+    <label class="choice"><input type="checkbox" name="auto" checked><span><b>Assign porters automatically</b><small>Jobs the sheet leaves without porters are shared out fairly among ${day?.roster?.length && day.roster.length < day.porters.length ? `the ${day.roster.length} people working` : "the team"}. You can change any of them afterwards.</small></span></label>
     <button class="btn primary block" id="upGo" type="submit" style="margin-top:16px" disabled>Read it</button>
   </form>`);
   let files = [];
@@ -340,17 +393,19 @@ function showUpload() {
   $("#upForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const mode = new FormData(e.target).get("mode");
+    const auto = e.target.elements.auto.checked;
     $("#sheetBody").innerHTML = `<div class="working"><div class="spinner"></div><b>Reading the agenda…</b><div style="color:var(--muted);margin-top:6px">Usually a few seconds.</div></div>`;
     try {
       const fd = new FormData();
       fd.append("mode", mode);
+      fd.append("autoAssign", auto ? "1" : "0");
       for (const f of files) fd.append("images", isImage(f) ? await shrink(f) : f);
       const r = await api("api/upload", { method: "POST", body: fd });
       if (r.dates?.length && !r.dates.includes(date)) date = r.dates[0];
       await loadDay(true);
       $("#sheetBody").innerHTML = `<div class="working"><div class="done-tick" style="width:52px;height:52px;margin:0 auto 14px">${icon("check")}</div>
         <b>Found ${r.count} job${r.count === 1 ? "" : "s"}${r.dates?.length ? ` for ${r.dates.map((d) => fmtDay(d, { weekday: "short", day: "numeric", month: "short" })).join(", ")}` : ""}</b>
-        <div style="color:var(--muted);margin-top:6px">${r.unassigned ? `${r.unassigned} job${r.unassigned > 1 ? "s have" : " has"} no porters yet – assign them in the table.` : "Every job has porters."}</div></div>
+        <div style="color:var(--muted);margin-top:6px">${r.autoAssigned ? `${r.autoAssigned} job${r.autoAssigned > 1 ? "s" : ""} without porters ${r.autoAssigned > 1 ? "were" : "was"} assigned automatically – check the table. ` : ""}${r.unassigned ? `${r.unassigned} job${r.unassigned > 1 ? "s have" : " has"} no porters yet – assign them in the table.` : r.autoAssigned ? "" : "Every job has porters."}</div></div>
         ${r.newHosts?.length ? `<div class="unlisted"><h3>New host names</h3><p>Tick the ones to keep on your host list (untick any the screenshot misread).</p>
           <div class="names">${r.newHosts.map((h) => `<label><input type="checkbox" value="${esc(h)}" checked>${esc(h)}</label>`).join("")}</div>
           <div class="btn-row"><button class="btn primary" data-act="add-new-hosts">Add to host list</button></div></div>` : ""}
@@ -469,6 +524,7 @@ document.addEventListener("click", async (e) => {
     case "edit": return showEdit(id);
     case "delete": return deleteJob(id);
     case "upload": return showUpload();
+    case "auto": return showAuto();
     case "add-day-hosts": return addDayHosts();
     case "add-new-hosts": return addCheckedHosts(el.closest(".unlisted"));
     case "host-del":
@@ -490,6 +546,7 @@ $("#dateIn").addEventListener("change", (e) => { if (e.target.value) goDate(e.ta
 $("#todayBtn").addEventListener("click", () => goDate(day?.today || localToday()));
 $("#uploadBtn").addEventListener("click", showUpload);
 $("#addBtn").addEventListener("click", () => showEdit(null));
+$("#autoBtn").addEventListener("click", showAuto);
 $("#shotBtn").addEventListener("click", showShots);
 $("#hostSearch").addEventListener("input", renderHosts);
 $("#hostForm").addEventListener("submit", async (e) => {

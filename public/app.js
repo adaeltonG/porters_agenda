@@ -24,6 +24,9 @@ const SLOTS = [
 ];
 const SLOT_LABEL = Object.fromEntries(SLOTS.map((s) => [s.key, s.label]));
 const ROLE_SLOT = { TCW: "teaCoffee", TC: "teaCoffee", T: "teaCoffee", B: "breakfast", L: "lunch", A: "afternoon", PM: "afternoon", S: "setup", SU: "setup", C: "clearUp", CU: "clearUp", R: "reset" };
+// what a ticked task means to a host
+const DONE_WORD = { setup: "Set up", teaCoffee: "Delivered", breakfast: "Delivered", lunch: "Delivered", afternoon: "Delivered", clearUp: "Cleared", reset: "Reset", done: "Done" };
+const DONE_NEWS = { setup: "Set up", teaCoffee: "Tea/coffee delivered", breakfast: "Breakfast delivered", lunch: "Lunch delivered", afternoon: "Afternoon catering delivered", clearUp: "Cleared up", reset: "Reset done", done: "Done" };
 const ROLE_SHORT = { teaCoffee: "Tea/coffee", breakfast: "Breakfast", lunch: "Lunch", afternoon: "Afternoon", setup: "Setup", clearUp: "Clear up", reset: "Reset" };
 const COLORS = ["#2f7fd1", "#d0573a", "#2f9e6e", "#9b59b6", "#c98a12", "#16a0a8", "#c2417e", "#5b6ad0"];
 
@@ -32,6 +35,13 @@ let me = store.get("me", null);
 let pin = store.get("pin", "");
 let filter = store.get("filter", null);
 let hideDone = store.get("hideDone", false);
+// Hosts get a read-only view of their events: what's been delivered / cleared.
+let role = store.get("role", "porter");          // "porter" | "host"
+let hostName = store.get("hostName", null);      // the host's own name, "" = every event
+let hostFilter = store.get("hostFilter", "mine"); // "mine" | "all"
+let liveTicks = false;                           // ticks came from the server this session
+const asHost = () => role === "host";
+const signedIn = () => (asHost() ? hostName != null : Boolean(me));
 let state = null;
 let selectedDay = null;
 let pending = 0;
@@ -91,11 +101,17 @@ const fmtMin = (m) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
 const isTicked = (job, key) => Boolean(state.ticks?.[job.id]?.[key]);
 const isAdmin = () => Boolean(state?.admin);
 /** Porters tick their own jobs (or "Everyone" jobs); other people's are read-only. */
-const canTick = (job) => isAdmin() || job.everyone || Boolean(job.porters?.some((p) => p.name === me));
+const canTick = (job) => !asHost() && (isAdmin() || job.everyone || Boolean(job.porters?.some((p) => p.name === me)));
 const jobDone = (job) => tasksOf(job).every((t) => isTicked(job, t.key));
 
 const unassigned = (job) => !job.everyone && !job.porters?.length;
-function matchesFilter(job, f = filter) {
+const isMyEvent = (job) => Boolean(hostName) && (job.hosts || []).some((h) => h.toLowerCase() === hostName.toLowerCase());
+/** The porter whose tasks are picked out on the cards (none in the host view). */
+const porterHighlight = () => (!asHost() && filter && filter !== "__none" ? filter : null);
+/** What the list is showing: a porter / "__none" / null for porters; "mine" / "all" for hosts. */
+const activeFilter = () => (asHost() ? (hostName ? hostFilter : "all") : filter);
+function matchesFilter(job, f = activeFilter()) {
+  if (asHost()) return f !== "mine" || isMyEvent(job);
   if (!f) return true;
   if (f === "__none") return unassigned(job);
   return job.everyone || job.porters?.some((p) => p.name === f);
@@ -121,7 +137,7 @@ function render() {
   const isToday = selectedDay === today;
   $("#dayTitle").textContent = selectedDay ? (isToday ? "Today · " : "") + fmtDay(selectedDay) : "Porters Agenda";
   document.title = selectedDay ? `${fmtDay(selectedDay)} · Porters` : "Porters Agenda";
-  $("#shotBtn").hidden = !dayUpload()?.images?.length;
+  $("#shotBtn").hidden = asHost() || !dayUpload()?.images?.length;
   $("#fab").hidden = !isAdmin() || days.includes(today);
 
   // day tabs (only when the upload had more than one day)
@@ -132,12 +148,19 @@ function render() {
   const dayJobs = state.jobs.filter((j) => (j.date || "") === (selectedDay || ""));
 
   // filter chips with counts
-  const opts = [[null, "Everyone"], ...cfg.porters.map((p) => [p, p === me ? `${p} (me)` : p]), ["__none", "Unassigned"]];
-  $("#chips").innerHTML = opts.map(([v, label]) => {
-    const n = dayJobs.filter((j) => matchesFilter(j, v)).length;
-    if (v === "__none" && !n) return "";
-    return `<button class="chip" data-filter="${esc(v ?? "")}" aria-pressed="${filter === v}">${esc(label)}<span class="n">${n}</span></button>`;
-  }).join("");
+  if (asHost()) {
+    const opts = hostName ? [["mine", "My events"], ["all", "All events"]] : [];
+    $("#chips").innerHTML = opts.map(([v, label]) =>
+      `<button class="chip" data-hfilter="${v}" aria-pressed="${activeFilter() === v}">${esc(label)}<span class="n">${dayJobs.filter((j) => matchesFilter(j, v)).length}</span></button>`).join("");
+  } else {
+    const opts = [[null, "Everyone"], ...cfg.porters.map((p) => [p, p === me ? `${p} (me)` : p]), ["__none", "Unassigned"]];
+    $("#chips").innerHTML = opts.map(([v, label]) => {
+      const n = dayJobs.filter((j) => matchesFilter(j, v)).length;
+      if (v === "__none" && !n) return "";
+      return `<button class="chip" data-filter="${esc(v ?? "")}" aria-pressed="${filter === v}">${esc(label)}<span class="n">${n}</span></button>`;
+    }).join("");
+  }
+  $("#chips").hidden = !$("#chips").innerHTML;
   if (lastChipFilter !== filter) {
     lastChipFilter = filter;
     $("#chips [aria-pressed=true]")?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -150,7 +173,7 @@ function render() {
       ? `<div class="banner"><div><b>This is the agenda for ${esc(fmtDay(selectedDay, true))}</b>Upload today's screenshot when it's posted.</div><button class="act" data-act="upload">Upload</button></div>`
       : `<div class="banner"><div><b>This is the agenda for ${esc(fmtDay(selectedDay, true))}</b>Today's agenda hasn't been put up yet.</div></div>`;
   }
-  if (!banner) banner = pushPromptHTML();
+  if (!banner) banner = asHost() ? homeScreenTipHTML() : pushPromptHTML();
   $("#banner").innerHTML = banner;
 
   const jobs = dayJobs.filter((j) => matchesFilter(j));
@@ -174,7 +197,10 @@ function render() {
   $("#hideDoneBtn").textContent = hideDone ? "Show finished" : "Hide finished";
 
   if (!jobs.length) {
-    list.innerHTML = `<div class="empty"><h2>Nothing for ${esc(filter === "__none" ? "unassigned" : filter)}</h2><div>No jobs ${filter === "__none" ? "without a porter" : "assigned"} on this day.</div>
+    list.innerHTML = asHost()
+      ? `<div class="empty"><h2>Nothing for you on this day</h2><div>None of the events on this day list ${esc(hostName)} as the host.</div>
+      <button class="btn big" data-hfilter="all">Show all events</button></div>`
+      : `<div class="empty"><h2>Nothing for ${esc(filter === "__none" ? "unassigned" : filter)}</h2><div>No jobs ${filter === "__none" ? "without a porter" : "assigned"} on this day.</div>
       <button class="btn big" data-filter="">Show everyone</button></div>`;
     return;
   }
@@ -231,7 +257,9 @@ function taskHTML(job, t, focus) {
   if (!badge && mine) badge = `<span class="badge mine">Yours</span>`;
   const inner = `<span class="box">${icon("check")}</span>
     <span class="tl">${t.time ? `<span class="tm">${esc(t.time)}</span>` : ""}<span class="name">${esc(t.label)}</span>${t.note ? `<small>${esc(t.note)}</small>` : ""}</span>
-    ${tick ? `<span class="tby">${esc(tick.by)}<br>${fmtClock(tick.at)}</span>` : badge}`;
+    ${tick ? (asHost()
+      ? `<span class="tby"><b class="status">${esc(DONE_WORD[t.key])}</b> ${fmtClock(tick.at)}<br>${esc(tick.by)}</span>`
+      : `<span class="tby">${esc(tick.by)}<br>${fmtClock(tick.at)}</span>`) : badge}`;
   const cls = `task${tick ? " ticked" : ""}${focus && !mine ? " dim" : ""}`;
   if (!canTick(job)) return `<li><div class="${cls} readonly" role="checkbox" aria-checked="${Boolean(tick)}" aria-disabled="true">${inner}</div></li>`;
   return `<li><button class="${cls}" data-act="tick" data-job="${esc(job.id)}" data-task="${t.key}" aria-pressed="${Boolean(tick)}">${inner}</button></li>`;
@@ -250,7 +278,7 @@ function cardHTML(job, { start, end, done }) {
         <span class="when">${start != null ? fmtMin(start) : ""}</span>
       </button></article>`;
   }
-  const highlight = filter && filter !== "__none" ? filter : null;
+  const highlight = porterHighlight();
   const focus = highlight ? mySlots(job, highlight) : null;
   const place = job.task && job.location && !job.task.includes(job.location) ? job.location : "";
   const sub = [place, title !== job.host ? job.host : "", job.vendor].filter(Boolean).join(" · ");
@@ -292,19 +320,19 @@ function showDetail(id) {
     ["Requestor", job.requestor], ["Event lead", job.eventLead], ["Sheet says", job.portersRaw],
   ].filter(([, v]) => v);
   const links = [job.links?.menu && "Menu / allergen matrix", job.links?.agenda && "Agenda", job.links?.floorPlan && "Floor plan"].filter(Boolean);
-  const highlight = filter && filter !== "__none" ? filter : null;
+  const highlight = porterHighlight();
   sheet.dataset.kind = "detail";
   sheet.dataset.job = id;
   openSheet(job.task ? "Job details" : job.host || "Job details", `<div class="detail">
     <div class="detail-where">${esc(jobTitle(job))}</div>
     <div class="porters" style="padding:6px 0 4px">${porterChips(job, highlight)}</div>
     <ul class="tasks">${tasksOf(job).map((t) => taskHTML(job, t, highlight ? mySlots(job, highlight) : null)).join("")}</ul>
-    ${canTick(job) ? "" : `<div class="hint">Only the porters on this job can tick it.</div>`}
+    ${canTick(job) ? "" : `<div class="hint">${asHost() ? "The porters tick each part off as it's done – this updates by itself." : "Only the porters on this job can tick it."}</div>`}
     ${job.info ? `<div class="notes">${esc(job.info)}</div>` : ""}
     <dl>${rows.map(([k, v]) => `<div class="kv"><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>
     ${links.length ? `<div class="links">${links.map((l) => `<span>${esc(l)}: link in spreadsheet</span>`).join("")}</div>` : ""}
     <div class="btn-row">
-      ${dayUpload()?.images?.length ? `<button class="btn" data-act="shots">${icon("image")} Screenshot</button>` : ""}
+      ${!asHost() && dayUpload()?.images?.length ? `<button class="btn" data-act="shots">${icon("image")} Screenshot</button>` : ""}
       ${isAdmin() ? `<button class="btn" data-act="edit" data-job="${esc(id)}">${icon("edit")} Edit</button>
       <button class="btn danger" data-act="delete" data-job="${esc(id)}">${icon("trash")} Delete</button>` : ""}
     </div></div>`);
@@ -425,6 +453,13 @@ async function showShots() {
 
 function showMenu() {
   sheet.dataset.kind = "menu";
+  if (asHost()) {
+    return openSheet("Menu", `<ul class="menu-list">
+      ${isIOS && !standalone ? `<li><button data-act="home-tip">${icon("plus")}<span>Add to Home Screen<small>Share → Add to Home Screen, to open it like an app</small></span></button></li>` : ""}
+      <li><button data-act="refresh">${icon("refresh")}<span>Refresh</span></button></li>
+      <li><button data-act="switch">${icon("user")}<span>Switch person<small>${hostName ? `Signed in as ${esc(hostName)} (host)` : "Showing every event"}</small></span></button></li>
+    </ul>`);
+  }
   openSheet("Menu", `<ul class="menu-list">
     ${isAdmin() ? `<li><button data-act="upload">${icon("upload")}<span>Upload agenda<small>Screenshot from the group chat, or the sheet file</small></span></button></li>
     <li><button data-act="add">${icon("plus")}<span>Add a job by hand</span></button></li>
@@ -466,6 +501,7 @@ function showUpload() {
     ${hasJobs ? `
     <label class="choice"><input type="radio" name="mode" value="replace" checked><span><b>Replace the agenda</b><small>Use for a new day or an updated sheet. Ticks and assigned porters are kept for jobs that haven't changed.</small></span></label>
     <label class="choice"><input type="radio" name="mode" value="append"><span><b>Add more rows</b><small>Use when the rest of the agenda is in another screenshot.</small></span></label>` : `<input type="hidden" name="mode" value="replace">`}
+    <label class="choice"><input type="checkbox" name="auto" checked><span><b>Assign porters automatically</b><small>Jobs the sheet leaves without porters are shared out fairly. You can change any of them afterwards.</small></span></label>
     <button class="btn primary block" id="upGo" type="submit" style="margin-top:16px" disabled>Read screenshot</button>
   </form>`);
   let files = [];
@@ -481,15 +517,17 @@ function showUpload() {
   $("#upForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const mode = new FormData(e.target).get("mode");
+    const auto = e.target.elements.auto.checked;
     $("#sheetBody").innerHTML = `<div class="working"><div class="spinner"></div><b>Reading the agenda…</b><div style="color:var(--muted);margin-top:6px">This usually takes a few seconds. Keep this screen open.</div></div>`;
     try {
       const fd = new FormData();
       fd.append("mode", mode);
+      fd.append("autoAssign", auto ? "1" : "0");
       for (const f of files) fd.append("images", isImage(f) ? await shrink(f) : f);
       const r = await api("api/upload", { method: "POST", body: fd });
       await refresh(true);
       $("#sheetBody").innerHTML = `<div class="working"><div class="done-tick" style="width:52px;height:52px;margin:0 auto 14px">${icon("check")}</div>
-        <b>Found ${r.count} job${r.count === 1 ? "" : "s"}</b><div style="color:var(--muted);margin-top:6px">Everyone's phone will update in a few seconds.<br>Give the cards a quick check against the screenshot.</div></div>
+        <b>Found ${r.count} job${r.count === 1 ? "" : "s"}</b><div style="color:var(--muted);margin-top:6px">Everyone's phone will update in a few seconds.<br>${r.autoAssigned ? `${r.autoAssigned} job${r.autoAssigned > 1 ? "s" : ""} without porters ${r.autoAssigned > 1 ? "were" : "was"} assigned automatically.<br>` : ""}Give the cards a quick check against the screenshot.</div></div>
         ${r.warnings?.length ? `<div class="warn"><b>Double-check these:</b><ul>${r.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>` : ""}
         <button class="btn primary block" data-close style="margin-top:16px">Done</button>`;
     } catch (err) {
@@ -533,7 +571,7 @@ function rerenderAll() {
 }
 
 document.addEventListener("click", (e) => {
-  const el = e.target.closest("[data-act],[data-filter],[data-day],#showHidden");
+  const el = e.target.closest("[data-act],[data-filter],[data-hfilter],[data-day],#showHidden");
   if (!el) return;
   if (el.id === "showHidden") { hideDone = false; store.set("hideDone", false); return render(); }
   if (el.dataset.filter !== undefined && !el.dataset.act) {
@@ -544,6 +582,13 @@ document.addEventListener("click", (e) => {
     return;
   }
   if (el.dataset.day !== undefined) { selectedDay = el.dataset.day; return render(); }
+  if (el.dataset.hfilter) {
+    hostFilter = el.dataset.hfilter;
+    store.set("hostFilter", hostFilter);
+    render();
+    window.scrollTo({ top: 0 });
+    return;
+  }
   const id = el.dataset.job;
   switch (el.dataset.act) {
     case "tick": return toggleTick(id, el.dataset.task);
@@ -559,6 +604,7 @@ document.addEventListener("click", (e) => {
     case "push-on": return enablePush();
     case "push-off": return disablePush();
     case "push-later": store.set("pushLater", Date.now()); closeSheet(); return render();
+    case "home-tip": closeSheet(); return toast("In Safari: tap Share, then Add to Home Screen");
   }
 });
 $("#menuBtn").addEventListener("click", showMenu);
@@ -583,22 +629,31 @@ function setSync(ok) {
     : "Offline – showing last copy";
 }
 async function refresh(force) {
+  const wasHost = asHost();
   try {
-    const d = await api(`api/state?since=${force ? 0 : state?.version || 0}`);
-    if (!d.unchanged) { state = d; store.set("cache", d); rerenderAll(); alertNewJobs(); }
+    const d = await api(`${wasHost ? "api/host/state" : "api/state"}?since=${force ? 0 : state?.version || 0}`);
+    if (wasHost !== asHost()) return; // switched between porter and host meanwhile
+    if (!d.unchanged) {
+      const before = liveTicks ? state?.ticks : null;
+      state = d;
+      liveTicks = true;
+      store.set(`cache.${role}`, d);
+      rerenderAll();
+      if (wasHost) alertDeliveries(before); else alertNewJobs();
+    }
     setSync(true);
   } catch (e) {
     if (e.message !== "Not logged in") setSync(false);
   }
 }
-setInterval(() => { if (document.visibilityState === "visible" && !pending && me) refresh(); }, 10000);
+setInterval(() => { if (document.visibilityState === "visible" && !pending && signedIn()) refresh(); }, 10000);
 // The "Now" line, "in 20 min" and "late" badges follow the clock: redraw exactly when the
 // minute changes, and straight away when the app comes back on screen (phones pause timers
 // while the app is in the background).
 let clockTimer;
 function clockTick() {
   clearTimeout(clockTimer);
-  if (document.visibilityState === "visible" && me && state && !pending && !$("#app").hidden) {
+  if (document.visibilityState === "visible" && signedIn() && state && !pending && !$("#app").hidden) {
     rerenderAll();
     setSync(!$("#syncDot").classList.contains("bad"));
   }
@@ -607,7 +662,7 @@ function clockTick() {
 }
 clockTick();
 function backOnScreen() {
-  if (document.visibilityState !== "visible" || !me) return;
+  if (document.visibilityState !== "visible" || !signedIn()) return;
   clockTick();
   refresh();
 }
@@ -615,38 +670,110 @@ document.addEventListener("visibilitychange", backOnScreen);
 window.addEventListener("pageshow", backOnScreen);
 window.addEventListener("focus", backOnScreen);
 // tapping a notification while the app is open
-navigator.serviceWorker?.addEventListener("message", (e) => { if (e.data?.type === "refresh" && me) refresh(true); });
+navigator.serviceWorker?.addEventListener("message", (e) => { if (e.data?.type === "refresh" && signedIn()) refresh(true); });
 
 // ---------- login ----------
+// Two tabs: porters pick their name + team PIN; hosts type the PIN, then pick their name.
 let pickName = null;
+let loginRole = "porter";
+let loginHosts = null; // host names, once the PIN has gone through
+let hostPin = "";
+
 function showLogin(msg) {
   $("#app").hidden = true;
   $("#login").hidden = false;
   closeSheet();
   pickName = me;
-  $("#pinWrap").hidden = !cfg.pinRequired;
+  loginRole = role;
+  loginHosts = null;
   $("#loginErr").textContent = msg || "";
-  const draw = () => {
-    $("#loginNames").innerHTML = cfg.porters.map((p) => `<button type="button" data-name="${esc(p)}" aria-pressed="${p === pickName}" style="--c:${colorOf(p)}"><span class="av">${initial(p)}</span>${esc(p)}</button>`).join("");
-    $("#loginBtn").disabled = !pickName;
-  };
-  $("#loginNames").onclick = (e) => {
-    const b = e.target.closest("[data-name]");
-    if (!b) return;
-    pickName = b.dataset.name;
-    draw();
-    if (cfg.pinRequired && !$("#pin").value) $("#pin").focus();
-  };
-  draw();
+  $("#hostSearch").value = "";
+  drawLogin();
+  if (loginRole === "host" && !cfg.hostPinRequired) unlockHosts("");
 }
+
+function drawLogin() {
+  const host = loginRole === "host";
+  const picking = host && loginHosts != null;
+  for (const b of document.querySelectorAll("#roleTabs [data-role]")) b.setAttribute("aria-selected", String(b.dataset.role === loginRole));
+  $("#loginLead").textContent = !host ? "Who are you?" : picking ? "Which host are you?" : "See when your lunches, breakfasts and events have been delivered and cleared.";
+  $("#loginNames").hidden = host;
+  $("#hostPick").hidden = !picking;
+  $("#loginForm").hidden = picking;
+  $("#pinWrap").hidden = host ? !cfg.hostPinRequired : !cfg.pinRequired;
+  $("#pinLabel").textContent = host ? "PIN" : "Team PIN";
+  $("#pin").inputMode = host ? "text" : "numeric"; // the host PIN may contain letters
+  $("#pin").autocapitalize = "characters";
+  if (host) {
+    $("#loginBtn").disabled = false;
+    if (picking) drawHostNames();
+    return;
+  }
+  $("#loginNames").innerHTML = cfg.porters.map((p) => `<button type="button" data-name="${esc(p)}" aria-pressed="${p === pickName}" style="--c:${colorOf(p)}"><span class="av">${initial(p)}</span>${esc(p)}</button>`).join("");
+  $("#loginBtn").disabled = !pickName;
+}
+
+function drawHostNames() {
+  const q = $("#hostSearch").value.trim().toLowerCase();
+  const list = loginHosts.filter((h) => !q || h.toLowerCase().includes(q));
+  $("#hostNames").innerHTML = list.length
+    ? list.map((h) => `<button type="button" data-host="${esc(h)}"><span class="av">${initial(h)}</span>${esc(h)}</button>`).join("")
+    : `<div class="hint">${loginHosts.length ? "No match. Try part of your first name, or show every event below." : "No host names yet. Show every event below."}</div>`;
+}
+
+async function unlockHosts(p) {
+  try {
+    const res = await fetch("api/host/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pin: p }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { $("#loginErr").textContent = data.error || "That PIN isn't right."; return; }
+    hostPin = p;
+    loginHosts = data.hosts || [];
+    $("#loginErr").textContent = "";
+    drawLogin();
+  } catch { $("#loginErr").textContent = "Can't reach the server. Check your signal."; }
+}
+
+function enterAsHost(name) {
+  if (role !== "host") state = null;
+  liveTicks = false; // don't announce ticks from before this person signed in
+  role = "host"; hostName = name; pin = hostPin;
+  hostFilter = name ? "mine" : "all";
+  store.set("role", role); store.set("hostName", hostName); store.set("pin", pin); store.set("hostFilter", hostFilter);
+  startApp();
+}
+
+$("#roleTabs").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-role]");
+  if (!b || b.dataset.role === loginRole) return;
+  loginRole = b.dataset.role;
+  $("#loginErr").textContent = "";
+  drawLogin();
+  if (loginRole === "host" && loginHosts == null && !cfg.hostPinRequired) unlockHosts("");
+});
+$("#loginNames").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-name]");
+  if (!b) return;
+  pickName = b.dataset.name;
+  drawLogin();
+  if (cfg.pinRequired && !$("#pin").value) $("#pin").focus();
+});
+$("#hostSearch").addEventListener("input", drawHostNames);
+$("#hostNames").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-host]");
+  if (b) enterAsHost(b.dataset.host);
+});
+$("#hostAll").addEventListener("click", () => enterAsHost(""));
+
 $("#loginForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const p = $("#pin").value.trim();
+  if (loginRole === "host") return unlockHosts(p);
   try {
     const res = await fetch("api/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pin: p }) });
     if (!res.ok) { $("#loginErr").textContent = "That PIN isn't right."; return; }
   } catch { $("#loginErr").textContent = "Can't reach the server. Check your signal."; return; }
-  const switched = me !== pickName;
+  const switched = me !== pickName || role !== "porter";
+  if (role !== "porter") { role = "porter"; store.set("role", role); state = null; liveTicks = false; }
   me = pickName; pin = p;
   store.set("me", me); store.set("pin", pin);
   if (switched) syncPush();
@@ -657,7 +784,7 @@ $("#loginForm").addEventListener("submit", async (e) => {
 function startApp() {
   $("#login").hidden = true;
   $("#app").hidden = false;
-  const cached = store.get("cache", null);
+  const cached = store.get(`cache.${role}`, null);
   if (cached && !state) { state = cached; render(); }
   refresh(true);
 }
@@ -665,10 +792,31 @@ function startApp() {
 (async function boot() {
   try {
     cfg = await (await fetch("api/config")).json();
-  } catch { /* offline: fall back to defaults */ cfg.porters = ["Tom", "Jeet", "Robinson", "Pablo", "Ricardo", "Wilson"]; }
+  } catch { /* offline: fall back to defaults */ cfg.porters = ["Tom", "Jeet", "Robinson", "Pablo", "Ricardo", "Wilson"]; cfg.pinRequired = cfg.hostPinRequired = true; }
   if (filter && filter !== "__none" && !cfg.porters.includes(filter)) filter = null;
-  if (me && (pin || !cfg.pinRequired)) { startApp(); syncPush(); } else showLogin();
+  const pinNeeded = asHost() ? cfg.hostPinRequired : cfg.pinRequired;
+  if (signedIn() && (pin || !pinNeeded)) { startApp(); syncPush(); } else showLogin();
 })();
+
+// ---------- host alerts (in the app) ----------
+// While a host has the app open: buzz and say so when one of their events is ticked off.
+function alertDeliveries(before) {
+  if (!before || !hostName || !state) return;
+  const news = [];
+  for (const j of state.jobs) {
+    if (!isMyEvent(j)) continue;
+    for (const t of tasksOf(j)) if (state.ticks?.[j.id]?.[t.key] && !before[j.id]?.[t.key]) news.push({ j, t });
+  }
+  if (!news.length) return;
+  navigator.vibrate?.([120, 60, 120]);
+  const { j, t } = news[0];
+  toast(news.length === 1 ? `${DONE_NEWS[t.key]} · ${jobTitle(j)}` : `${news.length} updates on your events`);
+}
+
+function homeScreenTipHTML() {
+  if (!isIOS || standalone || Date.now() - store.get("pushLater", 0) < 3 * 86400000) return "";
+  return `<div class="banner tip"><div><b>Keep it on your Home Screen</b>Tap Share, then <i>Add to Home Screen</i>. Open it from the new icon and pick your name once more.</div><button class="act" data-act="push-later">OK</button></div>`;
+}
 
 // ---------- new-job alerts (in the app) ----------
 // While the app is open: buzz and show a message when a job is newly given to me.
@@ -763,7 +911,7 @@ async function disablePush() {
 
 /** Keeps the server's record of "this phone belongs to <me>" up to date. */
 async function syncPush() {
-  if (!pushOn() || !me) return;
+  if (asHost() || !pushOn() || !me) return;
   try {
     const sub = await subscription(false);
     if (sub) await api("api/push/subscribe", { method: "POST", body: { subscription: sub.toJSON() } });
