@@ -55,11 +55,20 @@ function times(job) {
 const fmtMin = (m) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
 const unassigned = (job) => !job.everyone && !job.porters?.length;
 
+// After a deploy the server sends a new build id: reload, unless a form is open (then on the next call).
+let build = null;
+function checkBuild(res) {
+  const b = res.headers.get("x-build");
+  if (!b) return;
+  if (!build) build = b;
+  else if (b !== build && !document.getElementById("sheet")?.open) location.reload();
+}
 async function api(path, opts = {}) {
   const headers = { "x-admin-pin": adminPin, "x-admin-user": encodeURIComponent(adminUser), ...(opts.headers || {}) };
   let body = opts.body;
   if (body && !(body instanceof FormData)) { headers["content-type"] = "application/json"; body = JSON.stringify(body); }
   const res = await fetch(path, { ...opts, headers, body });
+  checkBuild(res);
   if (res.status === 401) { showLogin("Please log in again."); throw new Error("Not logged in"); }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Something went wrong (${res.status})`);

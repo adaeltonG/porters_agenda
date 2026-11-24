@@ -2,7 +2,7 @@ import express from "express";
 import multer from "multer";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { extractRows, isSheetFile, today } from "./src/extract.js";
@@ -395,6 +395,16 @@ function adminDay(date) {
 const app = express();
 app.disable("x-powered-by");
 app.use(express.json({ limit: "200kb" }));
+// Which front-end is live: a hash of the files in public/. Pages that are already open compare
+// it on every call and reload themselves after a deploy, so nobody keeps running old code.
+const BUILD = (() => {
+  const h = crypto.createHash("sha1");
+  for (const f of readdirSync(path.join(here, "public")).sort()) {
+    try { h.update(f).update(readFileSync(path.join(here, "public", f))); } catch {}
+  }
+  return h.digest("hex").slice(0, 12);
+})();
+app.use("/api", (req, res, next) => { res.set("X-Build", BUILD); next(); });
 app.use(express.static(path.join(here, "public"), {
   maxAge: "5m",
   // code and pages are re-checked on every load (cheap 304s), so an update shows up straight away
