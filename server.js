@@ -222,8 +222,10 @@ function dayLabel(date) {
   return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
 }
 
-function describeJob(job) {
-  const tasks = SLOT_KEYS.filter((k) => job.slots?.[k]?.needed);
+/** One line about a job; with a name, only the tasks that porter does on it. */
+function describeJob(job, name) {
+  const p = name && job.porters?.find((x) => x.name.toLowerCase() === name.toLowerCase());
+  const tasks = p ? heldTasks(job, p).map((t) => t.key).filter((k) => SLOT_KEYS.includes(k)) : SLOT_KEYS.filter((k) => job.slots?.[k]?.needed);
   const first = tasks.map((k) => job.slots[k].time).filter(Boolean).sort()[0];
   if (!tasks.length && job.task) return `${job.task}${job.location && !job.task.includes(job.location) ? ` · ${job.location}` : ""}`;
   const what = tasks.length === 1 ? SLOT_LABEL[tasks[0]] : tasks.length ? `${tasks.length} tasks` : "Job";
@@ -250,8 +252,8 @@ function notifyAssignments(changes, by) {
     const days = [...new Set(jobs.map((j) => j.date))];
     const when = days.length === 1 ? dayLabel(days[0]) : "Coming days";
     const msg = jobs.length === 1
-      ? { title: `New job${when === "Today" ? "" : ` · ${when}`}`, body: describeJob(jobs[0]) }
-      : { title: `${jobs.length} new jobs · ${when}`, body: jobs.slice(0, 3).map(describeJob).join("\n") + (jobs.length > 3 ? `\n+${jobs.length - 3} more` : "") };
+      ? { title: `New job${when === "Today" ? "" : ` · ${when}`}`, body: describeJob(jobs[0], name) }
+      : { title: `${jobs.length} new jobs · ${when}`, body: jobs.slice(0, 3).map((j) => describeJob(j, name)).join("\n") + (jobs.length > 3 ? `\n+${jobs.length - 3} more` : "") };
     notify(store, [name], { ...msg, tag: `assign-${days[0]}` }).catch((e) => console.error("notify:", e));
   }
 }

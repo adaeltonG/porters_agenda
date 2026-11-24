@@ -88,8 +88,14 @@ async function api(path, opts = {}) {
 }
 
 // ---------- jobs ----------
-function tasksOf(job) {
-  const t = SLOTS.filter((s) => job.slots?.[s.key]?.needed).map((s) => ({ key: s.key, label: s.label, ...job.slots[s.key] }));
+/**
+ * A job's tasks as one porter sees them: on a split job ("Set up: Wilson · Hospitality: Tom")
+ * only their own; with nobody picked out (the "all" view, hosts), every task.
+ */
+function tasksOf(job, name = porterHighlight()) {
+  let t = SLOTS.filter((s) => job.slots?.[s.key]?.needed).map((s) => ({ key: s.key, label: s.label, ...job.slots[s.key] }));
+  const mine = name ? mySlots(job, name) : null;
+  if (mine && t.some((x) => mine.has(x.key))) t = t.filter((x) => mine.has(x.key));
   if (!t.length) t.push({ key: "done", label: "Mark as done", time: "", note: "" });
   return t;
 }
@@ -250,7 +256,7 @@ function porterChips(job, highlight) {
   }).join("");
 }
 
-function taskHTML(job, t, focus) {
+function taskHTML(job, t) {
   const tick = state.ticks?.[job.id]?.[t.key];
   const isToday = (job.date || "") === todayStr();
   let badge = "";
@@ -259,14 +265,12 @@ function taskHTML(job, t, focus) {
     if (diff >= 0 && diff <= 45) badge = `<span class="badge soon">in ${diff} min</span>`;
     else if (diff < -10 && diff > -360) badge = `<span class="badge late">${-diff < 60 ? `${-diff}m` : `${Math.floor(-diff / 60)}h ${pad(-diff % 60)}m`} ago</span>`;
   }
-  const mine = focus && focus.has(t.key);
-  if (!badge && mine) badge = `<span class="badge mine">Yours</span>`;
   const inner = `<span class="box">${icon("check")}</span>
     <span class="tl">${t.time ? `<span class="tm">${esc(t.time)}</span>` : ""}<span class="name">${esc(t.label)}</span>${t.note ? `<small>${esc(t.note)}</small>` : ""}</span>
     ${tick ? (asHost()
       ? `<span class="tby"><b class="status">${esc(DONE_WORD[t.key])}</b> ${fmtClock(tick.at)}<br>${esc(tick.by)}</span>`
       : `<span class="tby">${esc(tick.by)}<br>${fmtClock(tick.at)}</span>`) : badge}`;
-  const cls = `task${tick ? " ticked" : ""}${focus && !mine ? " dim" : ""}`;
+  const cls = `task${tick ? " ticked" : ""}`;
   if (!canTick(job)) return `<li><div class="${cls} readonly" role="checkbox" aria-checked="${Boolean(tick)}" aria-disabled="true">${inner}</div></li>`;
   return `<li><button class="${cls}" data-act="tick" data-job="${esc(job.id)}" data-task="${t.key}" aria-pressed="${Boolean(tick)}">${inner}</button></li>`;
 }
@@ -285,7 +289,6 @@ function cardHTML(job, { start, end, done }) {
       </button></article>`;
   }
   const highlight = porterHighlight();
-  const focus = highlight ? mySlots(job, highlight) : null;
   const place = job.task && job.location && !job.task.includes(job.location) ? job.location : "";
   const sub = [place, title !== job.host ? job.host : "", job.vendor].filter(Boolean).join(" · ");
   const when = start == null ? "" : start === end ? `<b>${fmtMin(start)}</b>` : `<b>${fmtMin(start)}</b> – ${fmtMin(end)}`;
@@ -297,7 +300,7 @@ function cardHTML(job, { start, end, done }) {
       ${sub ? `<div class="who">${esc(sub)}</div>` : ""}
     </button>
     <div class="porters">${porterChips(job, highlight)}</div>
-    <ul class="tasks">${tasksOf(job).map((t) => taskHTML(job, t, focus)).join("")}</ul>
+    <ul class="tasks">${tasksOf(job).map((t) => taskHTML(job, t)).join("")}</ul>
     ${job.info ? `<p class="info" data-act="detail" data-job="${esc(job.id)}"><b>Notes:</b> ${esc(job.info)}</p>` : ""}
   </article>`;
 }
@@ -332,7 +335,7 @@ function showDetail(id) {
   openSheet(job.task ? "Job details" : job.host || "Job details", `<div class="detail">
     <div class="detail-where">${esc(jobTitle(job))}</div>
     <div class="porters" style="padding:6px 0 4px">${porterChips(job, highlight)}</div>
-    <ul class="tasks">${tasksOf(job).map((t) => taskHTML(job, t, highlight ? mySlots(job, highlight) : null)).join("")}</ul>
+    <ul class="tasks">${tasksOf(job).map((t) => taskHTML(job, t)).join("")}</ul>
     ${canTick(job) ? "" : `<div class="hint">${asHost() ? "The porters tick each part off as it's done – this updates by itself." : "Only the porters on this job can tick it."}</div>`}
     ${job.info ? `<div class="notes">${esc(job.info)}</div>` : ""}
     <dl>${rows.map(([k, v]) => `<div class="kv"><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>
