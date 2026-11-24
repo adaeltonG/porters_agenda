@@ -632,8 +632,9 @@ app.put("/api/jobs/:id", auth, adminRequired, (req, res) => {
   const job = makeJob({ ...body, site: body.site ?? before.site, porters: body.porters ?? before.porters, everyone: body.everyone ?? before.everyone });
   job.id = before.id;
   job.date ||= before.date;
-  // keep sheet roles ("TCW", "L") for porters who are still assigned
-  job.porters = job.porters.map((p) => (p.roles.length ? p : { ...p, roles: before.porters?.find((o) => o.name === p.name)?.roles || [] }));
+  // keep sheet roles ("TCW", "L") for porters who are still assigned, unless the form sent its own split
+  const ownRoles = Array.isArray(body.porters) && body.porters.some((p) => typeof p === "object");
+  if (!ownRoles) job.porters = job.porters.map((p) => (p.roles.length ? p : { ...p, roles: before.porters?.find((o) => o.name === p.name)?.roles || [] }));
   store.tx(() => { registerHosts(req, job); store.saveJob(job); changed(); });
   notifyAssignments([{ before, after: job }], req.porter);
   res.json({ ok: true, job });

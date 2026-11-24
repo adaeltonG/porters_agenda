@@ -208,6 +208,7 @@ function renderAgenda() {
   }
 }
 
+const ROLE_CODE = { setup: "S", teaCoffee: "TCW", breakfast: "B", lunch: "L", afternoon: "A", clearUp: "C", reset: "R" };
 const ROLE_SLOT = { TCW: "teaCoffee", TC: "teaCoffee", T: "teaCoffee", B: "breakfast", L: "lunch", A: "afternoon", PM: "afternoon", S: "setup", SU: "setup", C: "clearUp", CU: "clearUp", R: "reset" };
 
 /** "Davina: Tea/coffee · Pablo: Lunch, Clear up" when a job is split between people. */
@@ -418,6 +419,7 @@ function showEdit(id) {
         <span class="lbl">${esc(s.label)}</span>
         ${timeInputHTML(`${s.key}.time`, esc(sl.time || ""), `${esc(s.label)} time`)}
         <input class="in note" name="${s.key}.note" value="${esc(sl.note || "")}" placeholder="Note (optional)" aria-label="${esc(s.label)} note">
+        <div class="who-row" data-who="${s.key}"></div>
       </div>`;
     }).join("")}
     <input type="hidden" name="eventLead" value="${v("eventLead")}">
@@ -432,13 +434,43 @@ function showEdit(id) {
     options: day.hosts, selected: job.hosts || (job.host ? [job.host] : []), allowNew: true, closeOnPick: true,
     placeholder: "Choose or type a name", label: "Hosts",
   });
+  // who does each task: { slotKey: Set(names) }. Starts from the porters' roles ("S", "L"); no roles = everything.
+  const who = Object.fromEntries(SLOTS.map((s) => [s.key, new Set()]));
+  const known = new Set();
+  const jobKeys = tasksOf(job).map((t) => t.key);
+  for (const p of job.porters || []) {
+    const keys = roleKeys(p);
+    const all = !keys.some((k) => jobKeys.includes(k));
+    for (const s of SLOTS) if (all || keys.includes(s.key)) who[s.key].add(p.name);
+    known.add(p.name);
+  }
+  const checked = (k) => form.elements[`${k}.needed`].checked;
+  const renderWho = () => {
+    const { values, everyone } = porterPick.value;
+    for (const n of values) if (!known.has(n)) { known.add(n); for (const s of SLOTS) who[s.key].add(n); } // someone new does everything
+    for (const s of SLOTS) {
+      const el = form.querySelector(`[data-who="${s.key}"]`);
+      el.innerHTML = !everyone && values.length > 1 && checked(s.key)
+        ? values.map((n) => `<button type="button" class="who-chip${who[s.key].has(n) ? " on" : ""}" data-k="${s.key}" data-n="${esc(n)}" aria-pressed="${who[s.key].has(n)}">${esc(n)}</button>`).join("")
+        : "";
+    }
+  };
   const porterPick = multiPicker($("#porterPick"), {
     options: day.porters, selected: (job.porters || []).map((p) => p.name), everyone: true, everyoneOn: job.everyone,
-    placeholder: "Choose porters", label: "Porters",
+    placeholder: "Choose porters", label: "Porters", onChange: renderWho,
+  });
+  renderWho();
+  form.addEventListener("click", (e) => {
+    const b = e.target.closest(".who-chip");
+    if (!b) return;
+    const set = who[b.dataset.k];
+    set.has(b.dataset.n) ? set.delete(b.dataset.n) : set.add(b.dataset.n);
+    renderWho();
   });
   form.addEventListener("input", (e) => {
     const [k, f] = (e.target.name || "").split(".");
     if (f && f !== "needed" && e.target.value) form.elements[`${k}.needed`].checked = true;
+    if (f) renderWho();
   });
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -447,10 +479,26 @@ function showEdit(id) {
       const [a, b] = k.split(".");
       if (b) (body.slots[a] ||= {})[b] = val; else body[a] = val;
     }
-    for (const s of SLOTS) (body.slots[s.key] ||= {}).needed = form.elements[`${s.key}.needed`].checked;
+    for (const s of SLOTS) {
+      const sl = (body.slots[s.key] ||= {});
+      sl.needed = checked(s.key);
+      if (!sl.needed) sl.time = ""; // a time left in an unticked task would switch it back on
+    }
     body.hosts = hostPick.value.values;
-    body.porters = porterPick.value.values;
     body.everyone = porterPick.value.everyone;
+    const names = porterPick.value.values;
+    const on = SLOTS.filter((s) => checked(s.key)).map((s) => s.key);
+    const split = !body.everyone && names.length > 1 && on.length > 0;
+    if (split) {
+      const idle = names.find((n) => !on.some((k) => who[k].has(n)));
+      if (idle) return toast(`${idle} has no tasks – give them one or take them off the job`);
+      const nobody = on.find((k) => !names.some((n) => who[k].has(n)));
+      if (nobody) return toast(`Nobody is doing ${SHORT[nobody]}`);
+    }
+    body.porters = names.map((n) => {
+      const mine = split ? on.filter((k) => who[k].has(n)) : on;
+      return { name: n, roles: mine.length === on.length ? [] : mine.map((k) => ROLE_CODE[k]) };
+    });
     body.portersRaw = job.portersRaw || "";
     try {
       await api(id ? `api/jobs/${encodeURIComponent(id)}` : "api/jobs", { method: id ? "PUT" : "POST", body });

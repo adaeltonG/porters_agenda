@@ -212,3 +212,9 @@ dialog.sheet.wide { max-width: 760px; }
 .rota-table .rc small { font-size: 10.5px; line-height: 1.1; margin-top: 1px; }
 #tab-rota .a-sub { margin-bottom: 10px; }
 #tab-rota .a-dayhead { margin-bottom: 0; }
+
+/* edit form: who does each task (tap a name to take them off that task) */
+.slot-row .who-row { grid-column: 2 / 4; display: flex; flex-wrap: wrap; gap: 6px; }
+.slot-row .who-row:empty { display: none; }
+.who-chip { border: 1px solid var(--line); background: transparent; color: var(--muted); border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; text-decoration: line-through; }
+.who-chip.on { background: var(--accent-soft); color: var(--accent); border-color: transparent; text-decoration: none; }
