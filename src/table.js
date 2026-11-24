@@ -156,8 +156,8 @@ export function parseDate(raw) {
 
 function parseOwner(raw) {
   const t = norm(raw).toLowerCase();
-  if (/hosp/.test(t)) return "Hospitality";
-  if (/mov/.test(t)) return "Movers";
+  if (/h?osp|spital/.test(t)) return "Hospitality"; // narrow columns cut it to "ospitality"
+  if (/mov|over/.test(t)) return "Movers";
   if (/both|^b?oth/.test(t)) return "Both";
   return "Other";
 }
@@ -243,6 +243,9 @@ export function interpretTable(table, { ocr = false, porters = [], map: givenMap
     // day headings like "THURSDAY" (one wide merged cell, or a weekday on its own)
     const first = norm(nonEmpty[0].text);
     if (nonEmpty.length === 1 && (WEEKDAY.test(first) || (nonEmpty[0].span || 1) >= cells.length / 2)) continue;
+    // ...or that heading read as a few wide pieces ("TU" + "sAY"): no digits, and together they span most of the row
+    const span = nonEmpty.reduce((n, c) => n + (c.span || 1), 0);
+    if (nonEmpty.length <= 3 && span >= cells.length / 2 && !nonEmpty.some((c) => /\d/.test(c.text))) continue;
     if (!map) continue; // rows above the header (titles, notes)
 
     const f = {};

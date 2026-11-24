@@ -77,19 +77,48 @@ function cleanSlot(s) {
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/** "TCW : Wilson L:Pablo" -> [{ name: "Wilson", roles: ["TCW"] }, { name: "Pablo", roles: ["L"] }] */
+const HOSPITALITY_ROLES = ["TCW", "B", "L", "A", "C"];
+/** The roles a label in the porter cell stands for ("Set up:", "Hospitality:", "TCW:"), or null if it isn't one. */
+function labelRoles(word) {
+  const w = word.toLowerCase().replace(/[\s/-]+/g, "");
+  if (/^setups?$/.test(w) || /^movers?$/.test(w)) return ["S", "R"]; // the set-up team also resets the room
+  if (/^h?osp/.test(w)) return HOSPITALITY_ROLES;
+  if (w === "reset") return ["R"];
+  if (/^clearups?$/.test(w)) return ["C"];
+  if (/^(tea|coffee|teacoffee|teacoffeewater)$/.test(w)) return ["TCW"];
+  if (w === "breakfast") return ["B"];
+  if (w === "lunch") return ["L"];
+  if (w === "afternoon") return ["A"];
+  if (w.length <= 4) return [word.toUpperCase()];
+  return null;
+}
+const LABEL_RE = /\b(set\s*-?\s*ups?|h?osp[a-z]*|movers?|reset|clear\s*-?\s*ups?|tea\s*\/?\s*coffee(?:\s*\/?\s*water)?|tea|coffee|breakfast|lunch|afternoon|[A-Za-z]{1,4})\s*:/gi;
+
+/**
+ * "TCW : Wilson L:Pablo" -> [{ name: "Wilson", roles: ["TCW"] }, { name: "Pablo", roles: ["L"] }]
+ * "Set up: Wilson, Pablo Hospitality: Tom" -> Wilson and Pablo set up (and reset), Tom does the catering.
+ * A label covers every name after it, up to the next label.
+ */
 function parsePorters(raw, names) {
   const text = str(raw);
+  const lower = new Set(names.map((n) => n.toLowerCase()));
+  const labels = [];
+  for (const m of text.matchAll(LABEL_RE)) {
+    if (lower.has(m[1].toLowerCase())) continue; // "Tom:" is a name, not a label
+    const roles = labelRoles(m[1]);
+    if (roles) labels.push({ end: m.index + m[0].length, roles });
+  }
   const out = [];
   for (const name of names) {
-    const re = new RegExp(`(?:\\b([A-Za-z]{1,4})\\s*:\\s*)?\\b${escapeRe(name)}\\b`, "gi");
+    const re = new RegExp(`\\b${escapeRe(name)}\\b`, "gi");
     const roles = [];
     let found = false, m;
     while ((m = re.exec(text))) {
       found = true;
-      if (m[1]) roles.push(m[1].toUpperCase());
+      const label = labels.filter((l) => l.end <= m.index).at(-1);
+      if (label) roles.push(...label.roles);
     }
-    if (found) out.push({ name, roles });
+    if (found) out.push({ name, roles: [...new Set(roles)] });
   }
   return out;
 }
