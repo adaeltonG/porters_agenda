@@ -11,6 +11,7 @@ import { openDb, importOldState } from "./src/db.js";
 import { initPush, notify, pushPublicKey } from "./src/push.js";
 import { autoAssign, taskLoads, describeRules, tasksOf, heldTasks, RULES } from "./src/autoassign.js";
 import { readRota, parseCode, normCode, matchPorter, titleCase, SHIFTS, SITES, CODES } from "./src/rota.js";
+import { LUNCH, planLunches, lunchProblems, taskTimes, clashesAt, crowdAt, startsFor, fmtMin, describeLunchRules } from "./src/lunch.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -184,7 +185,8 @@ function makeJob(row, { idCounts, ocr = false } = {}) {
     location: blankish(row.location),
     task: blankish(row.task), // what to do, when the sheet says it in words ("L33 Flexroom Clean")
     attendees: blankish(row.attendees),
-    info: str(row.info),
+    // notes keep their line breaks (a quick job's description can be several lines)
+    info: String(row.info ?? "").replace(/\r/g, "").split("\n").map(str).join("\n").replace(/\n{3,}/g, "\n\n").trim(),
     portersRaw,
     porters,
     everyone,
@@ -195,6 +197,9 @@ function makeJob(row, { idCounts, ocr = false } = {}) {
       floorPlan: Boolean(row.hasFloorPlanLink ?? row.links?.floorPlan),
     },
     slots,
+    // a quick job: something that came up during the day, given out from the dashboard at `at`
+    // and duration: how many minutes it should take (15 unless the admin says otherwise)
+    ...(row.quick ? { quick: true, at: cleanTime(row.at), duration: Math.min(480, Math.max(1, Math.round(Number(row.duration)) || 15)) } : {}),
   };
   if (idCounts) {
     // IDs come from the row's content, so a re-posted or overlapping screenshot maps onto
@@ -227,7 +232,7 @@ function describeJob(job, name) {
   const p = name && job.porters?.find((x) => x.name.toLowerCase() === name.toLowerCase());
   const tasks = p ? heldTasks(job, p).map((t) => t.key).filter((k) => SLOT_KEYS.includes(k)) : SLOT_KEYS.filter((k) => job.slots?.[k]?.needed);
   const first = tasks.map((k) => job.slots[k].time).filter(Boolean).sort()[0];
-  if (!tasks.length && job.task) return `${job.task}${job.location && !job.task.includes(job.location) ? ` · ${job.location}` : ""}`;
+  if (!tasks.length && job.task) return `${job.task}${job.location && !job.task.includes(job.location) ? ` · ${job.location}` : ""}${job.quick && job.duration ? ` · ${job.duration} min` : ""}`;
   const what = tasks.length === 1 ? SLOT_LABEL[tasks[0]] : tasks.length ? `${tasks.length} tasks` : "Job";
   return `${first ? first + " " : ""}${what} · ${job.location || job.host || "see app"}${job.location && job.host ? ` (${job.host})` : ""}`;
 }
@@ -252,7 +257,7 @@ function notifyAssignments(changes, by) {
     const days = [...new Set(jobs.map((j) => j.date))];
     const when = days.length === 1 ? dayLabel(days[0]) : "Coming days";
     const msg = jobs.length === 1
-      ? { title: `New job${when === "Today" ? "" : ` · ${when}`}`, body: describeJob(jobs[0], name) }
+      ? { title: `${jobs[0].quick ? "Quick job" : "New job"}${when === "Today" ? "" : ` · ${when}`}`, body: describeJob(jobs[0], name) + (jobs[0].quick && jobs[0].info ? `\n${jobs[0].info.slice(0, 140)}` : "") }
       : { title: `${jobs.length} new jobs · ${when}`, body: jobs.slice(0, 3).map((j) => describeJob(j, name)).join("\n") + (jobs.length > 3 ? `\n+${jobs.length - 3} more` : "") };
     notify(store, [name], { ...msg, tag: `assign-${days[0]}` }).catch((e) => console.error("notify:", e));
   }
@@ -275,7 +280,7 @@ function planFor(date) {
   const away = new Set(store.awayOverlapping(date, date).map((a) => a.porter.toLowerCase()));
   return store.porters().map((p) => {
     const k = p.name.toLowerCase();
-    // in = gets tasks; works = at work (Carlos on SIC / "no tasks" is at work but gets none)
+    // in = gets general tasks; works = at work (Carlos on SIC / "no tasks" is at work, L37 jobs only)
     let e = { in: true, works: true, site: p.site, from: null, to: null, label: "", why: "usual" };
     if (rota.has(k)) e = { ...parseCode(rota.get(k)), why: "rota" };
     if (e.in && !p.tasks) e = { ...e, in: false, label: e.label && e.label !== "AM" && e.label !== "PM" ? e.label : "No tasks", why: "no-tasks" };
@@ -286,9 +291,14 @@ function planFor(date) {
         ? { ...e, in: false, works: false, label: "Off", why: "marked" }
         : { ...e, in: true, works: true, site: e.site || p.site, label: e.in ? e.label : "In", why: "marked" };
     }
-    return { name: p.name, ...e, rota: rota.get(k) || "", base };
+    // SIC / "no tasks" people are on Level 37: they get the L37 jobs, and only those
+    const l37 = !e.in && e.works && (e.label === "SIC" || e.why === "no-tasks");
+    return { name: p.name, ...e, l37, rota: rota.get(k) || "", base };
   });
 }
+
+/** A Level 37 job ("L37", "Level 37"), i.e. one for the SIC porter. */
+const isL37 = (job) => /(?:L|Lvl|Level)\s*-?\s*37/i.test(`${job.location || ""} ${job.task || ""}`);
 
 /** Tasks a person still has to do on a day (not ticked yet). */
 function openTasks(jobs, ticks, name) {
@@ -307,9 +317,22 @@ function openTasks(jobs, ticks, name) {
  */
 function fillPorters(dayJobs, targetIds, date, plan = planFor(date)) {
   let n = 0;
+  // Level 37 jobs go to whoever is on L37 that day (SIC), taking turns; nobody else gets them
+  const l37 = plan.filter((e) => e.l37);
+  if (l37.length) {
+    let i = 0;
+    for (const job of dayJobs) {
+      if (!targetIds.has(job.id) || !isL37(job)) continue;
+      const e = l37[i++ % l37.length];
+      job.porters = [{ name: e.name, roles: [] }];
+      job.everyone = false;
+      job.porterSource = "auto";
+      n++;
+    }
+  }
   for (const site of Object.keys(SITES)) {
     const siteJobs = dayJobs.filter((j) => (j.site || "tower") === site);
-    const ids = siteJobs.filter((j) => targetIds.has(j.id)).map((j) => j.id);
+    const ids = siteJobs.filter((j) => targetIds.has(j.id) && !(l37.length && isL37(j))).map((j) => j.id);
     const roster = plan.filter((e) => e.in && e.site === site);
     if (!ids.length || !roster.length) continue;
     const { porters } = autoAssign(siteJobs, ids, roster);
@@ -355,6 +378,80 @@ function migrateRosters() {
 }
 migrateRosters();
 
+// ---------- lunch breaks ----------
+
+const TIME_ZONE = process.env.TIME_ZONE || "Europe/London";
+/** The time now at the buildings, "HH:MM". */
+const clockNow = () => new Intl.DateTimeFormat("en-GB", { timeZone: TIME_ZONE, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date());
+const toMin = (t) => (/^\d{2}:\d{2}$/.test(t || "") ? Number(t.slice(0, 2)) * 60 + Number(t.slice(3)) : null);
+
+/**
+ * Everyone's lunch on a day: [{ name, site, start, end, manual, clashes, crowd, options }].
+ * Lunches are worked out once and stored. They're looked at again whenever the day's tasks,
+ * shifts or hand-set lunches change: automatic ones that still fit stay where they are and
+ * the rest are re-fitted (`redo` re-fits every automatic one, e.g. for a new agenda).
+ * Hand-set lunches, and ones that have started or start within 30 minutes, never move.
+ */
+function lunchesFor(date, { redo = false, plan = planFor(date) } = {}) {
+  const helper = String(RULES.morningHelper?.name || "").toLowerCase();
+  const people = plan.filter((e) => e.works && e.site && e.name.toLowerCase() !== helper && startsFor(e).length);
+  const tasks = taskTimes(store.jobsOn(date), people.map((p) => p.name));
+  const tasksOfName = (n) => tasks.get(n.toLowerCase()) || [];
+  let rows = new Map(store.lunches(date).map((r) => [r.porter.toLowerCase(), r]));
+  const t = today();
+  if (date >= t) {
+    const basis = crypto.createHash("sha1").update(JSON.stringify([
+      people.map((p) => [p.name, p.site, p.from, p.to, p.l37, tasksOfName(p.name).map((x) => x.min)]),
+      [...rows.values()].filter((r) => r.manual).map((r) => [r.porter, r.start]),
+    ])).digest("hex");
+    if (redo || store.getMeta(`lunch:${date}`) !== basis) {
+      const lock = date === t ? toMin(clockNow()) + 30 : -1;
+      store.tx(() => {
+        for (const site of Object.keys(SITES)) {
+          const here = people.filter((p) => p.site === site);
+          const pinned = new Map(), keep = new Map(); // pinned: set by hand or started; keep: also the ones that still fit
+          for (const p of here) {
+            const r = rows.get(p.name.toLowerCase());
+            const s = toMin(r?.start);
+            if (s == null) continue;
+            const fits = startsFor(p).includes(s) && !clashesAt(tasksOfName(p.name), s).length;
+            if (r.manual || s < lock) pinned.set(p.name, s);
+            if (r.manual || s < lock || fits) keep.set(p.name, s);
+          }
+          let placed = planLunches(here, tasks, redo ? pinned : keep, { notBefore: lock });
+          if (!redo) {
+            // moving only the lunches that stopped fitting can leave 3 at lunch at once; then
+            // re-plan the building's automatic lunches, if that works out better
+            const fresh = planLunches(here, tasks, pinned, { notBefore: lock });
+            if (lunchProblems(here, tasks, fresh) < lunchProblems(here, tasks, placed)) placed = fresh;
+          }
+          for (const [name, s] of placed) {
+            if (!pinned.has(name) && s != null) store.setLunch(date, name, fmtMin(s), false);
+          }
+        }
+        const names = new Set(people.map((p) => p.name.toLowerCase()));
+        for (const r of rows.values()) if (!r.manual && !names.has(r.porter.toLowerCase())) store.deleteLunch(date, r.porter);
+        store.setMeta(`lunch:${date}`, basis);
+      });
+      rows = new Map(store.lunches(date).map((r) => [r.porter.toLowerCase(), r]));
+    }
+  }
+  const startOf = (p) => toMin(rows.get(p.name.toLowerCase())?.start);
+  return people.filter((p) => startOf(p) != null).map((p) => {
+    const s = startOf(p);
+    const others = people.filter((o) => o !== p && !o.l37 && o.site === p.site && startOf(o) != null).map(startOf);
+    const crowd = (x) => (p.l37 ? 1 : crowdAt(x, others));
+    return {
+      name: p.name, site: p.site, l37: p.l37,
+      start: fmtMin(s), end: fmtMin(s + LUNCH.length),
+      manual: rows.get(p.name.toLowerCase()).manual,
+      clashes: clashesAt(tasksOfName(p.name), s).map((x) => x.what),
+      crowd: crowd(s),
+      options: startsFor(p).map((x) => ({ start: fmtMin(x), clashes: clashesAt(tasksOfName(p.name), x).map((c) => c.what), crowd: crowd(x) })),
+    };
+  });
+}
+
 // ---------- views ----------
 
 /** What a porter's phone shows: today (or the last day with jobs) plus anything ahead. */
@@ -365,12 +462,16 @@ function teamState(req) {
   const uploads = {}, plans = {};
   for (const d of new Set(jobs.map((j) => j.date))) {
     uploads[d] = dayUpload(d);
-    plans[d] = Object.fromEntries(planFor(d).map((e) => [e.name, { in: e.in, works: e.works, site: e.site, label: e.label, from: e.from, to: e.to }]));
+    const plan = planFor(d);
+    const lunch = new Map(lunchesFor(d, { plan }).map((l) => [l.name, { start: l.start, end: l.end }]));
+    plans[d] = Object.fromEntries(plan.map((e) => [e.name, { in: e.in, works: e.works, site: e.site, label: e.label, from: e.from, to: e.to, lunch: lunch.get(e.name) || null }]));
   }
   return { version: store.version, today: t, admin: Boolean(req.isAdmin), jobs, ticks: store.ticksFor(jobs.map((j) => j.id)), uploads, plans };
 }
 
 function adminDay(date) {
+  const plan = planFor(date);
+  const lunches = lunchesFor(date, { plan });
   const jobs = store.jobsOn(date);
   const hostNames = new Set(store.hosts().map((h) => h.name.toLowerCase()));
   return {
@@ -381,7 +482,10 @@ function adminDay(date) {
     ticks: store.ticksFor(jobs.map((j) => j.id)),
     upload: dayUpload(date),
     porters: store.porterNames(),
-    plan: planFor(date),
+    plan,
+    lunches,
+    lunchRules: describeLunchRules(RULES.morningHelper?.name),
+    helper: RULES.morningHelper ? { name: RULES.morningHelper.name, finishes: RULES.morningHelper.finishes } : null,
     sites: SITES,
     loads: taskLoads(jobs),
     autoRules: describeRules(RULES, SHIFTS),
@@ -487,6 +591,7 @@ app.get("/api/host/state", hostAuth, (req, res) => {
   res.set("Cache-Control", "no-store");
   if (Number(req.query.since) === store.version) return res.json({ unchanged: true, version: store.version });
   const { uploads, plans: _plans, ...rest } = teamState({ isAdmin: false });
+  rest.jobs = rest.jobs.filter((j) => !j.quick); // quick jobs are the porters' own business
   // no screenshots for hosts, just when the agenda went up
   res.json({ ...rest, host: true, uploads: Object.fromEntries(Object.entries(uploads).map(([d, u]) => [d, u && { at: u.at, by: u.by }])) });
 });
@@ -588,6 +693,7 @@ app.post("/api/upload", auth, adminRequired, upload.array("images", 6), async (r
         }
       }
       for (const job of fresh) store.saveJob(job);
+      for (const d of dates) lunchesFor(d, { redo: true }); // lunches are fitted around the new agenda
       store.addUpload({ by: req.porter, dates, images: names, warnings: result.warnings || [], site });
       changed();
     });
@@ -629,7 +735,9 @@ function registerHosts(req, job) {
 }
 
 app.post("/api/jobs", auth, adminRequired, (req, res) => {
-  const job = makeJob(req.body || {});
+  const body = req.body || {};
+  // a quick job is always for today, given out now
+  const job = makeJob(body.quick ? { ...body, date: today(), at: clockNow() } : body);
   job.id = "m" + crypto.randomBytes(5).toString("hex");
   job.date ||= today();
   store.tx(() => { registerHosts(req, job); store.saveJob(job); changed(); });
@@ -641,7 +749,7 @@ app.put("/api/jobs/:id", auth, adminRequired, (req, res) => {
   const before = store.job(req.params.id);
   if (!before) return res.status(404).json({ error: "Job not found" });
   const body = req.body || {};
-  const job = makeJob({ ...body, site: body.site ?? before.site, porters: body.porters ?? before.porters, everyone: body.everyone ?? before.everyone });
+  const job = makeJob({ ...body, site: body.site ?? before.site, porters: body.porters ?? before.porters, everyone: body.everyone ?? before.everyone, quick: before.quick, at: before.at, duration: body.duration ?? before.duration });
   job.id = before.id;
   job.date ||= before.date;
   // keep sheet roles ("TCW", "L") for porters who are still assigned, unless the form sent its own split
@@ -762,7 +870,7 @@ app.post("/api/admin/move", adminOnly, (req, res) => {
   if (!isDate(date)) return res.status(400).json({ error: "Pick a day" });
   const plan = planFor(date);
   const only = Array.isArray(req.body?.names) ? new Set(req.body.names.map((n) => str(n).toLowerCase())) : null;
-  const off = new Set(plan.filter((e) => !e.in && (!only || only.has(e.name.toLowerCase()))).map((e) => e.name.toLowerCase()));
+  const off = new Set(plan.filter((e) => !e.in && !e.l37 && (!only || only.has(e.name.toLowerCase()))).map((e) => e.name.toLowerCase()));
   const jobs = store.jobsOn(date);
   const ticks = store.ticksFor(jobs.map((j) => j.id));
   const befores = new Map(), targets = new Set();
@@ -794,6 +902,30 @@ const mondayOf = (d) => { const x = new Date(d + "T12:00:00Z"); x.setUTCDate(x.g
 const addDays = (d, n) => { const x = new Date(d + "T12:00:00Z"); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
 
 /** The week's rota (Monday to Sunday) plus who's in on each day once holidays and marks count. */
+/** The admin moving someone's lunch (start "HH:MM"), or giving it back to the automatic plan (start null). */
+app.put("/api/admin/lunch", adminOnly, (req, res) => {
+  const date = String(req.body?.date || "");
+  if (!isDate(date)) return res.status(400).json({ error: "Pick a day" });
+  const e = planFor(date).find((x) => x.name.toLowerCase() === str(req.body?.name).toLowerCase());
+  if (!e) return res.status(404).json({ error: "Unknown porter" });
+  const start = req.body?.start ? cleanTime(req.body.start) : null;
+  if (req.body?.start && !start) return res.status(400).json({ error: "Pick a time" });
+  store.tx(() => {
+    if (start) store.setLunch(date, e.name, start, true); else store.deleteLunch(date, e.name);
+    changed();
+  });
+  res.json({ ok: true, lunches: lunchesFor(date) });
+});
+
+/** "Re-plan lunches": every automatic lunch is fitted again (hand-set ones stay). */
+app.post("/api/admin/lunch/replan", adminOnly, (req, res) => {
+  const date = String(req.body?.date || "");
+  if (!isDate(date)) return res.status(400).json({ error: "Pick a day" });
+  let lunches = [];
+  store.tx(() => { lunches = lunchesFor(date, { redo: true }); changed(); });
+  res.json({ ok: true, lunches });
+});
+
 app.get("/api/admin/rota", adminOnly, (req, res) => {
   res.set("Cache-Control", "no-store");
   const from = mondayOf(isDate(req.query.week) ? req.query.week : today());

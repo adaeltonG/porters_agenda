@@ -1,5 +1,5 @@
 // Porters Agenda - client
-import { multiPicker } from "./picker.js?v=4";
+import { multiPicker } from "./picker.js?v=5";
 import { ask } from "./ask.js?v=1";
 import { timeInputHTML, wireTimeInputs } from "./timeinput.js";
 
@@ -110,6 +110,7 @@ function tasksOf(job, name = porterHighlight()) {
 }
 function jobTimes(job) {
   const mins = tasksOf(job).map((t) => toMin(t.time)).filter((m) => m != null);
+  if (!mins.length && job.quick && toMin(job.at) != null) mins.push(toMin(job.at), toMin(job.at) + (Number(job.duration) || 15)); // a quick job: given out, expected done
   return mins.length ? { start: Math.min(...mins), end: Math.max(...mins) } : { start: null, end: null };
 }
 const fmtMin = (m) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
@@ -230,22 +231,27 @@ function render() {
     .map((j) => ({ j, ...jobTimes(j), done: jobDone(j) }))
     .sort((a, b) => (a.start ?? 1e9) - (b.start ?? 1e9) || (a.end ?? 1e9) - (b.end ?? 1e9));
 
+  // lines dropped into the list at their time: "Now" (today) and the lunch break of whoever the list is for
   const now = nowMin();
-  let html = "", nowPlaced = !isToday, hiddenCount = 0, untimedLabel = false;
+  const markers = [];
+  if (isToday) markers.push({ at: now, html: `<div class="now">Now · ${fmtMin(now)}</div>` });
+  const whose = asHost() ? null : porterHighlight() || (filter == null ? me : null);
+  const lunch = whose && state.plans?.[selectedDay]?.[whose]?.lunch;
+  if (lunch) markers.push({ at: toMin(lunch.start), html: `<div class="lunch-line"><b>${whose === me ? "Your lunch" : `${esc(whose)}'s lunch`}</b> ${esc(lunch.start)}–${esc(lunch.end)}</div>` });
+  markers.sort((a, b) => a.at - b.at);
+  const placeUntil = (limit) => { while (markers.length && (limit == null || markers[0].at < limit)) html += markers.shift().html; };
+  let html = "", hiddenCount = 0, untimedLabel = false;
   for (const it of sorted) {
     if (hideDone && it.done) { hiddenCount++; continue; }
-    if (!nowPlaced && it.start != null && it.start > now) {
-      html += `<div class="now">Now · ${fmtMin(now)}</div>`;
-      nowPlaced = true;
-    }
+    if (it.start != null) placeUntil(it.start);
     if (it.start == null && !untimedLabel) {
-      if (!nowPlaced) { html += `<div class="now">Now · ${fmtMin(now)}</div>`; nowPlaced = true; }
+      placeUntil(null);
       html += `<div class="group-label">No set time</div>`;
       untimedLabel = true;
     }
     html += cardHTML(it.j, it);
   }
-  if (!nowPlaced) html += `<div class="now">Now · ${fmtMin(now)}</div>`;
+  placeUntil(null);
   if (hiddenCount) html += `<button class="btn block" id="showHidden">${hiddenCount} finished job${hiddenCount > 1 ? "s" : ""} hidden · Show</button>`;
   list.innerHTML = html;
 }
@@ -303,7 +309,7 @@ function cardHTML(job, { start, end, done }) {
   const when = start == null ? "" : start === end ? `<b>${fmtMin(start)}</b>` : `<b>${fmtMin(start)}</b> – ${fmtMin(end)}`;
   return `<article class="card" data-owner="${esc(job.owner)}">
     <button class="head" data-act="detail" data-job="${esc(job.id)}">
-      <div class="row1"><span class="when">${when}</span>${job.site === "dsq" ? `<span class="site-tag">DSQ</span>` : ""}<span class="owner-tag">${esc(job.owner === "Other" ? "" : job.owner)}</span>
+      <div class="row1"><span class="when">${when}</span>${job.quick ? `<span class="quick-tag">Quick job</span>` : ""}${job.site === "dsq" ? `<span class="site-tag">DSQ</span>` : ""}<span class="owner-tag">${esc(job.owner === "Other" ? "" : job.owner)}</span>
         ${job.attendees ? `<span class="pax">${icon("people")}${esc(job.attendees)}</span>` : ""}</div>
       <div class="where">${esc(title)}</div>
       ${sub ? `<div class="who">${esc(sub)}</div>` : ""}

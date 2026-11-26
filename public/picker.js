@@ -15,6 +15,7 @@ window.addEventListener("resize", () => openPicker?.place());
  * opts.everyone: true to offer "Everyone" (opts.everyoneOn = currently picked)
  * opts.allowNew: true to offer "Add “…”" for a name that isn't in the list
  * opts.closeOnPick: true to close the list after each pick
+ * opts.describe(name) -> { tone: "ok" | "busy", note, order }: colours a name and adds a line under it; lower order first
  * opts.onChange({ values, everyone })
  * opts.onClose() after the list closes
  */
@@ -46,12 +47,17 @@ export function multiPicker(root, opts) {
 
   function drawList() {
     const q = input.value.trim().toLowerCase();
-    const match = options.filter((o) => !q || o.toLowerCase().includes(q));
+    const info = new Map(options.map((o) => [o, opts.describe?.(o) || {}]));
+    const match = options.filter((o) => !q || o.toLowerCase().includes(q))
+      .sort((a, b) => (info.get(a).order ?? 0) - (info.get(b).order ?? 0));
     let html = "";
     if (opts.everyone && (!q || "everyone".includes(q))) {
       html += `<button type="button" class="pk-opt all" data-v="__all" aria-selected="${everyone}"><span class="pk-tick"></span>Everyone</button>`;
     }
-    html += match.map((o) => `<button type="button" class="pk-opt" data-v="${esc(o)}" aria-selected="${!everyone && has(o)}"><span class="pk-tick"></span>${esc(o)}</button>`).join("");
+    html += match.map((o) => {
+      const d = info.get(o);
+      return `<button type="button" class="pk-opt${d.tone ? ` ${d.tone}` : ""}" data-v="${esc(o)}" aria-selected="${!everyone && has(o)}"><span class="pk-tick"></span><span class="pk-txt">${esc(o)}${d.note ? `<small class="pk-note">${esc(d.note)}</small>` : ""}</span></button>`;
+    }).join("");
     if (opts.allowNew && q && !options.some((o) => o.toLowerCase() === q)) {
       html += `<button type="button" class="pk-opt new" data-new="${esc(input.value.trim())}">+ Add “${esc(input.value.trim())}”</button>`;
     }

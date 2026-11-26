@@ -44,6 +44,11 @@ export function openDb(dataDir) {
       date TEXT NOT NULL, porter TEXT NOT NULL COLLATE NOCASE, off INTEGER NOT NULL,
       PRIMARY KEY (date, porter)
     );
+    -- lunch breaks: one per person per day; manual = set by the admin, never moved automatically
+    CREATE TABLE IF NOT EXISTS lunch (
+      date TEXT NOT NULL, porter TEXT NOT NULL COLLATE NOCASE, start TEXT NOT NULL, manual INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (date, porter)
+    );
     -- booked time off (holidays)
     CREATE TABLE IF NOT EXISTS away (
       id INTEGER PRIMARY KEY, porter TEXT NOT NULL COLLATE NOCASE, date_from TEXT NOT NULL, date_to TEXT NOT NULL, note TEXT NOT NULL DEFAULT ''
@@ -70,9 +75,12 @@ class Store {
   }
 
   tx(fn) {
+    if (this.inTx) return fn(); // already inside one: just join it
     this.db.exec("BEGIN");
+    this.inTx = true;
     try { const r = fn(); this.db.exec("COMMIT"); return r; }
     catch (e) { this.db.exec("ROLLBACK"); throw e; }
+    finally { this.inTx = false; }
   }
 
   /** Every change bumps the version so phones/dashboards know to reload. */
@@ -119,6 +127,12 @@ class Store {
     if (off == null) return this.db.prepare("DELETE FROM day_off WHERE date = ? AND porter = ?").run(date, porter);
     this.db.prepare("INSERT INTO day_off (date, porter, off) VALUES (?, ?, ?) ON CONFLICT(date, porter) DO UPDATE SET off = excluded.off").run(date, porter, off ? 1 : 0);
   }
+  lunches(date) { return this.db.prepare("SELECT porter, start, manual FROM lunch WHERE date = ?").all(date).map((r) => ({ ...r, manual: Boolean(r.manual) })); }
+  setLunch(date, porter, start, manual) {
+    this.db.prepare("INSERT INTO lunch (date, porter, start, manual) VALUES (?, ?, ?, ?) ON CONFLICT(date, porter) DO UPDATE SET start = excluded.start, manual = excluded.manual")
+      .run(date, porter, start, manual ? 1 : 0);
+  }
+  deleteLunch(date, porter) { this.db.prepare("DELETE FROM lunch WHERE date = ? AND porter = ?").run(date, porter); }
   awayList(from = "0000-00-00") { return this.db.prepare("SELECT id, porter, date_from AS start, date_to AS end, note FROM away WHERE date_to >= ? ORDER BY date_from, porter").all(from); }
   awayOverlapping(from, to) { return this.db.prepare("SELECT id, porter, date_from AS start, date_to AS end, note FROM away WHERE date_from <= ? AND date_to >= ?").all(to, from); }
   addAway(porter, start, end, note = "") { this.db.prepare("INSERT INTO away (porter, date_from, date_to, note) VALUES (?, ?, ?, ?)").run(porter, start, end, note); }

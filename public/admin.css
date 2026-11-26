@@ -63,7 +63,7 @@ main h1 { font-size: 24px; margin: 0; letter-spacing: -.015em; }
 .a-table .loc { font-weight: 700; min-width: 120px; }
 .a-table .own { display: block; font-size: 11px; font-weight: 750; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
 .a-table .nt { color: var(--muted); max-width: 260px; font-size: 13px; }
-.a-table .nt div { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.a-table .nt div { white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .a-table .col-porters { min-width: 220px; }
 .a-table td.porters-cell { min-width: 220px; }
 .a-table td.porters-cell .pk-box { background: var(--surface); min-height: 40px; }
@@ -218,3 +218,41 @@ dialog.sheet.wide { max-width: 760px; }
 .slot-row .who-row:empty { display: none; }
 .who-chip { border: 1px solid var(--line); background: transparent; color: var(--muted); border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; text-decoration: line-through; }
 .who-chip.on { background: var(--accent-soft); color: var(--accent); border-color: transparent; text-decoration: none; }
+
+/* add a job: Full / Quick tabs */
+.add-seg { margin: 12px 0 8px; }
+textarea.in.desc { min-height: 150px; }
+.free-t { color: var(--accent); font-weight: 700; }
+.busy-t { color: var(--late); font-weight: 700; }
+.quick-tag { display: inline-block; padding: 1px 7px; border-radius: 999px; background: var(--soon-soft); color: var(--soon); font-size: 11px; font-weight: 750; text-transform: uppercase; letter-spacing: .04em; vertical-align: 1px; }
+
+/* who's in: lunch + quick job lines */
+.lchip, .qchip {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 11px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--surface); font-weight: 650; font-size: 14px;
+}
+.lchip small { font-size: 12px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+.lchip:hover { border-color: var(--faint); }
+.lchip.on { background: var(--accent-soft); border-color: transparent; }
+.lchip.warn { background: var(--soon-soft); border-color: transparent; color: var(--soon); }
+.lchip.warn small { color: inherit; }
+.lchip.marked { border-style: dashed; border-color: currentColor; }
+.qchip b { min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font-size: 13px; }
+.qchip.zero { color: var(--muted); }
+.qchip.zero b { background: var(--surface-2); color: var(--muted); }
+
+/* lunch sheet */
+.lunch-opts { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 8px; }
+.lopt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 9px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); text-align: left; }
+.lopt b { font-variant-numeric: tabular-nums; }
+.lopt small { font-size: 12px; color: var(--muted); line-height: 1.3; }
+.lopt:hover { border-color: var(--faint); }
+.lopt.on { border-color: var(--accent); background: var(--accent-soft); }
+.lopt.meh small { color: var(--soon); }
+.lopt.bad { opacity: .75; }
+.lopt.bad small { color: var(--late); }
+.lunch-other { display: flex; align-items: flex-end; gap: 10px; }
+.lunch-other label.f { flex: 1; }
+.lunch-sheet .warn { margin-top: 8px; }
+.who-grp.lunch-grp, .who-grp.quick-grp { flex-basis: 100%; }
+.dur-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
